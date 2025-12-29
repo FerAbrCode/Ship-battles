@@ -1,0 +1,2593 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Fleet Battle — Destroyers + Battleship</title>
+  <style>
+    :root { color-scheme: dark; }
+    html, body { height: 100%; margin: 0; background: #051035; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+    #wrap { display: grid; place-items: center; height: 100%; }
+    #hud { position: fixed; inset: 0 0 auto 0; padding: 10px 12px; display: flex; gap: 12px; align-items: center; justify-content: space-between; background: rgba(0,0,0,0.38); backdrop-filter: blur(6px); z-index: 10; }
+    #hud .left, #hud .right { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .pill { padding: 6px 10px; border-radius: 999px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.10); font-size: 12px; }
+    .pill strong { font-weight: 700; }
+    #msg { position: fixed; left: 50%; top: 56px; transform: translateX(-50%); padding: 10px 12px; border-radius: 10px; background: rgba(0,0,0,0.48); border: 1px solid rgba(255,255,255,0.14); font-size: 13px; max-width: min(820px, 94vw); display: none; }
+    canvas { border-radius: 12px; border: 1px solid rgba(255,255,255,0.10); }
+    a, button { color: inherit; }
+    button { cursor: pointer; }
+    #btnRow button { padding: 6px 10px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.08); }
+    #btnRow button:hover { background: rgba(255,255,255,0.12); }
+    #menu { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(0,0,0,0.55); backdrop-filter: blur(6px); z-index: 20; }
+    #menu .card { width: min(760px, 92vw); border-radius: 14px; border: 1px solid rgba(255,255,255,0.12); background: rgba(0,0,0,0.55); padding: 16px; }
+    #menu h1 { margin: 0 0 8px 0; font-size: 18px; }
+    #menu .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 10px 0; }
+    #menu .muted { opacity: 0.82; font-size: 13px; line-height: 1.35; }
+    #menu button { padding: 8px 10px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.08); }
+    #menu button:hover { background: rgba(255,255,255,0.12); }
+    #menu button.sel { outline: 2px solid rgba(90,255,140,0.35); }
+    #menu .spacer { flex: 1; }
+  </style>
+</head>
+<body>
+  <div id="hud">
+    <div class="left">
+      <div class="pill"><strong>Level</strong>: <span id="level">1</span></div>
+      <div class="pill"><strong>Selected</strong>: <span id="sel">1</span></div>
+      <div class="pill"><strong>Ship</strong>: <span id="stype">DD</span></div>
+      <div class="pill"><strong>Smoke</strong>: <span id="smoke">Ready</span></div>
+      <div class="pill"><strong>Gun</strong>: <span id="gun">Ready</span></div>
+      <div class="pill"><strong>Torpedo</strong>: <span id="missile">Ready</span></div>
+      <div class="pill"><strong>HP</strong>: <span id="hp">-</span></div>
+    </div>
+    <div class="right" id="btnRow">
+      <button id="restart">Restart (R)</button>
+      <button id="next">Next Level</button>
+      <div class="pill">Aim: mouse · Move: WASD · Shell: Click · Torpedo: Q · Smoke: E</div>
+    </div>
+  </div>
+  <div id="msg"></div>
+  <div id="menu">
+    <div class="card">
+      <h1>WW2 Fleet Battle</h1>
+      <div class="muted">
+        Controls: WASD move · Mouse aim · Click shells · Q torpedo · E smoke · F extinguisher · R restart<br>
+        Radar-only spotting (shared with allies). Grounding: ships can get stuck on land.
+      </div>
+      <div class="row">
+        <div class="pill"><strong>Difficulty</strong></div>
+        <button id="diffEasy">Easy</button>
+        <button id="diffMed">Medium</button>
+        <button id="diffHard">Hard</button>
+      </div>
+      <div class="row">
+        <div class="pill"><strong>Your ship</strong></div>
+        <button id="classDD">Destroyer</button>
+        <button id="classBB">Battleship</button>
+        <button id="classTB">Torpedo boat</button>
+        <button id="classCV">Aircraft carrier</button>
+      </div>
+      <div class="row">
+        <div class="pill"><strong>Map</strong></div>
+        <button id="map0">Midway</button>
+        <button id="map1">Guadalcanal</button>
+        <button id="map2">Leyte Gulf</button>
+        <div class="spacer"></div>
+        <button id="startBtn">Start</button>
+      </div>
+    </div>
+  </div>
+  <div id="wrap">
+    <canvas id="c" width="1000" height="650"></canvas>
+  </div>
+<script>
+(() => {
+  // ═══════════════════════════════════════════════════════════════════════════
+  // CORE SETUP & UTILITIES
+  // ═══════════════════════════════════════════════════════════════════════════
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+  const ui = {
+    level: document.getElementById('level'),
+    sel: document.getElementById('sel'),
+    stype: document.getElementById('stype'),
+    smoke: document.getElementById('smoke'),
+    gun: document.getElementById('gun'),
+    missile: document.getElementById('missile'),
+    hp: document.getElementById('hp'),
+    msg: document.getElementById('msg'),
+    restart: document.getElementById('restart'),
+    next: document.getElementById('next'),
+    menu: document.getElementById('menu'),
+    diffEasy: document.getElementById('diffEasy'),
+    diffMed: document.getElementById('diffMed'),
+    diffHard: document.getElementById('diffHard'),
+    classDD: document.getElementById('classDD'),
+    classBB: document.getElementById('classBB'),
+    classTB: document.getElementById('classTB'),
+    classCV: document.getElementById('classCV'),
+    map0: document.getElementById('map0'),
+    map1: document.getElementById('map1'),
+    map2: document.getElementById('map2'),
+    startBtn: document.getElementById('startBtn'),
+  };
+
+  // Math utilities
+  const TAU = Math.PI * 2;
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const dist2 = (ax, ay, bx, by) => { const dx = ax - bx, dy = ay - by; return dx*dx + dy*dy; };
+  const len = (x, y) => Math.hypot(x, y);
+  const normAngle = (a) => { a %= TAU; if (a < -Math.PI) a += TAU; if (a > Math.PI) a -= TAU; return a; };
+  const angleTo = (ax, ay, bx, by) => Math.atan2(by - ay, bx - ax);
+  const rand = (a, b) => a + Math.random() * (b - a);
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // WORLD & MAP CONFIGURATION
+  // ═══════════════════════════════════════════════════════════════════════════
+  const MAP_SCALE = 1.45;
+  const WORLD = { w: Math.round(2800 * MAP_SCALE), h: Math.round(1900 * MAP_SCALE) };
+  const VIEW = { w: canvas.width, h: canvas.height };
+  
+  const DIFFS = {
+    easy: { name: 'Easy', aiAccMult: 0.85, aiAggroMult: 0.75 },
+    med:  { name: 'Medium', aiAccMult: 1.00, aiAggroMult: 1.00 },
+    hard: { name: 'Hard', aiAccMult: 1.18, aiAggroMult: 1.18 },
+  };
+
+  const MAPS = [
+    {
+      id: 0, name: 'Midway (1942)',
+      land: [
+        { x: 1380*MAP_SCALE, y: 920*MAP_SCALE, r: 150*MAP_SCALE },
+        { x: 1550*MAP_SCALE, y: 820*MAP_SCALE, r: 95*MAP_SCALE },
+        { x: 1210*MAP_SCALE, y: 1040*MAP_SCALE, r: 110*MAP_SCALE },
+        { x: 1700*MAP_SCALE, y: 1040*MAP_SCALE, r: 80*MAP_SCALE },
+      ],
+      pSpawn: [ [320*MAP_SCALE, 360*MAP_SCALE, 0.10], [280*MAP_SCALE, 480*MAP_SCALE, 0.08], [340*MAP_SCALE, 590*MAP_SCALE, 0.06], [200*MAP_SCALE, 520*MAP_SCALE, 0.10] ],
+      eSpawn: [ [WORLD.w-320*MAP_SCALE, WORLD.h-360*MAP_SCALE, Math.PI+0.10], [WORLD.w-280*MAP_SCALE, WORLD.h-480*MAP_SCALE, Math.PI+0.08], [WORLD.w-340*MAP_SCALE, WORLD.h-590*MAP_SCALE, Math.PI+0.06], [WORLD.w-200*MAP_SCALE, WORLD.h-520*MAP_SCALE, Math.PI+0.09] ],
+    },
+    {
+      id: 1, name: 'Guadalcanal (1942)',
+      land: [
+        { x: 900*MAP_SCALE, y: 780*MAP_SCALE, r: 260*MAP_SCALE },
+        { x: 760*MAP_SCALE, y: 980*MAP_SCALE, r: 240*MAP_SCALE },
+        { x: 640*MAP_SCALE, y: 1180*MAP_SCALE, r: 220*MAP_SCALE },
+        { x: 520*MAP_SCALE, y: 1380*MAP_SCALE, r: 210*MAP_SCALE },
+        { x: 1680*MAP_SCALE, y: 620*MAP_SCALE, r: 120*MAP_SCALE },
+        { x: 1860*MAP_SCALE, y: 740*MAP_SCALE, r: 140*MAP_SCALE },
+      ],
+      pSpawn: [ [300*MAP_SCALE, 260*MAP_SCALE, 0.10], [260*MAP_SCALE, 380*MAP_SCALE, 0.08], [340*MAP_SCALE, 510*MAP_SCALE, 0.06], [220*MAP_SCALE, 450*MAP_SCALE, 0.10] ],
+      eSpawn: [ [WORLD.w-360*MAP_SCALE, WORLD.h-420*MAP_SCALE, Math.PI+0.10], [WORLD.w-300*MAP_SCALE, WORLD.h-540*MAP_SCALE, Math.PI+0.08], [WORLD.w-420*MAP_SCALE, WORLD.h-650*MAP_SCALE, Math.PI+0.06], [WORLD.w-260*MAP_SCALE, WORLD.h-600*MAP_SCALE, Math.PI+0.09] ],
+    },
+    {
+      id: 2, name: 'Leyte Gulf (1944)',
+      land: [
+        { x: 1180*MAP_SCALE, y: 520*MAP_SCALE, r: 160*MAP_SCALE },
+        { x: 1320*MAP_SCALE, y: 720*MAP_SCALE, r: 180*MAP_SCALE },
+        { x: 980*MAP_SCALE,  y: 760*MAP_SCALE, r: 140*MAP_SCALE },
+        { x: 1640*MAP_SCALE, y: 980*MAP_SCALE, r: 210*MAP_SCALE },
+        { x: 1360*MAP_SCALE, y: 1120*MAP_SCALE, r: 160*MAP_SCALE },
+        { x: 980*MAP_SCALE,  y: 1200*MAP_SCALE, r: 150*MAP_SCALE },
+      ],
+      pSpawn: [ [260*MAP_SCALE, WORLD.h-420*MAP_SCALE, -0.10], [300*MAP_SCALE, WORLD.h-540*MAP_SCALE, -0.08], [340*MAP_SCALE, WORLD.h-650*MAP_SCALE, -0.06], [210*MAP_SCALE, WORLD.h-600*MAP_SCALE, -0.10] ],
+      eSpawn: [ [WORLD.w-320*MAP_SCALE, 360*MAP_SCALE, Math.PI-0.10], [WORLD.w-280*MAP_SCALE, 480*MAP_SCALE, Math.PI-0.08], [WORLD.w-340*MAP_SCALE, 590*MAP_SCALE, Math.PI-0.06], [WORLD.w-200*MAP_SCALE, 520*MAP_SCALE, Math.PI-0.09] ],
+    },
+  ];
+  
+  function mapById(id) { return MAPS[Math.max(0, Math.min(MAPS.length-1, id|0))]; }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // BATTLE & FORMATION CONFIG
+  // ═══════════════════════════════════════════════════════════════════════════
+  const BATTLES = {
+    0: { pName: 'Task Force 16', eName: 'Kido Butai', pForm: 'screen', eForm: 'lineAhead', pCount: 10, eCount: 10 },
+    1: { pName: 'Task Force 67', eName: 'Tokyo Express', pForm: 'lineAhead', eForm: 'lineAhead', pCount: 8,  eCount: 8 },
+    2: { pName: 'Taffy 3',      eName: 'Center Force', pForm: 'screen', eForm: 'lineAhead', pCount: 12, eCount: 12 },
+  };
+  
+  function battleByMap(id) { 
+    return BATTLES[id] || { pName: 'Allied Force', eName: 'Axis Force', pForm: 'lineAhead', eForm: 'lineAhead', pCount: 8, eCount: 8 }; 
+  }
+
+  function formationOffsets(formKey, count) {
+    const sep = 92 * MAP_SCALE;
+    const side = 70 * MAP_SCALE;
+    const out = [];
+    const n = Math.max(1, count|0);
+    for (let i = 0; i < n; i++) {
+      if (i === 0) { out.push([0,0]); continue; }
+      if (formKey === 'screen') {
+        const row = Math.ceil(i/2);
+        const lr = (i % 2 === 1) ? -1 : 1;
+        out.push([-row*sep, lr*side]);
+      } else {
+        out.push([-i*sep, 0]);
+      }
+    }
+    return out;
+  }
+
+  function formationSpawns(anchor, formKey, count) {
+    const x0 = anchor[0], y0 = anchor[1], a0 = anchor[2];
+    const offs = formationOffsets(formKey, count);
+    const out = [];
+    const ca = Math.cos(a0), sa = Math.sin(a0);
+    const nx = -sa, ny = ca;
+    for (let i = 0; i < count; i++) {
+      const f = offs[i][0], r = offs[i][1];
+      const x = x0 + ca*f + nx*r;
+      const y = y0 + sa*f + ny*r;
+      out.push([x, y, a0]);
+    }
+    return out;
+  }
+
+  function pickCapitalLeader(arr) {
+    const alive = arr.filter(s => s && s.alive);
+    if (!alive.length) return null;
+    for (const t of ['CV','BB']) {
+      const s = alive.find(x => x.kind.type === t);
+      if (s) return s;
+    }
+    return alive[0];
+  }
+
+  function setFormation(teamArr, formKey) {
+    const leader = pickCapitalLeader(teamArr) || teamArr[0];
+    if (!leader) return;
+    const pri = (s) => (s.kind.type === 'CV' ? 0 : (s.kind.type === 'BB' ? 1 : (s.kind.type === 'DD' ? 2 : (s.kind.type === 'TB' ? 3 : 4))));
+    const others = teamArr.filter(s => s !== leader).slice().sort((a,b) => pri(a) - pri(b));
+    const ordered = [leader].concat(others);
+    const offs = formationOffsets(formKey, ordered.length);
+    const sep = 92 * MAP_SCALE;
+    const side = 70 * MAP_SCALE;
+    
+    // Find all capital ships (CV and BB)
+    const capitals = ordered.filter(s => s.kind.type === 'CV' || s.kind.type === 'BB');
+    // Find all escort ships (DD)
+    const escorts = ordered.filter(s => s.kind.type === 'DD');
+    
+    // Assign escorts to capital ships evenly
+    for (let i = 0; i < escorts.length; i++) {
+      const capitalIdx = i % Math.max(1, capitals.length);
+      escorts[i].escortTarget = capitals[capitalIdx] || leader;
+    }
+    
+    // Position escorts in front and behind their assigned capital
+    let escortCountPerCapital = {};
+    for (const cap of capitals) {
+      escortCountPerCapital[cap.tag] = { front: 0, back: 0 };
+    }
+    
+    for (let i = 0; i < ordered.length; i++) {
+      const s = ordered[i];
+      s.formKey = formKey;
+      s.formRank = i;
+      let f = offs[Math.min(i, offs.length-1)][0];
+      let r = offs[Math.min(i, offs.length-1)][1];
+      
+      // Capital ships stay in formation
+      if (s.kind.type === 'CV' || s.kind.type === 'BB') {
+        if (s !== leader) {
+          // Non-leader capitals follow behind
+          const capIdx = capitals.indexOf(s);
+          f = -sep * (capIdx + 1);
+          r = 0;
+        }
+        s.formF = f;
+        s.formR = r;
+        continue;
+      }
+      
+      // Escorts position front and back of their assigned capital
+      if (s.kind.type === 'DD' && s.escortTarget) {
+        const cap = s.escortTarget;
+        const counts = escortCountPerCapital[cap.tag] || { front: 0, back: 0 };
+        const totalAssigned = counts.front + counts.back;
+        const goFront = counts.front <= counts.back; // Alternate front/back
+        
+        if (goFront) {
+          // Position in front of capital
+          const row = Math.floor(counts.front / 2) + 1;
+          const lr = (counts.front % 2 === 0) ? -1 : 1;
+          f = row * sep * 1.1; // Positive = ahead
+          r = lr * side * (0.8 + 0.2 * (row - 1));
+          counts.front++;
+        } else {
+          // Position behind capital
+          const row = Math.floor(counts.back / 2) + 1;
+          const lr = (counts.back % 2 === 0) ? -1 : 1;
+          f = -row * sep * 1.1; // Negative = behind
+          r = lr * side * (0.8 + 0.2 * (row - 1));
+          counts.back++;
+        }
+        
+        // Offset relative to capital's position in formation
+        if (cap !== leader) {
+          const capIdx = capitals.indexOf(cap);
+          f += -sep * (capIdx + 1);
+        }
+        
+        escortCountPerCapital[cap.tag] = counts;
+      }
+      
+      s.formF = f;
+      s.formR = r;
+    }
+  }
+
+
+  function formationPoint(leader, ship) {
+    // Use escort's assigned capital if available, otherwise use leader
+    const capital = ship.escortTarget || leader;
+    
+    // Predictive escort positioning: aim for where the capital WILL BE, not where it is now
+    const sp = Math.hypot(capital.vx || 0, capital.vy || 0);
+    const frac = clamp(sp / Math.max(1, capital.kind.maxSpeed || 1), 0, 1);
+    const leadT = 1.2 + 1.5 * frac; // Increased prediction time for better path following
+    const baseX = capital.x + (capital.vx || 0) * leadT;
+    const baseY = capital.y + (capital.vy || 0) * leadT;
+    
+    // Use velocity direction if moving, otherwise use heading
+    const h = (sp > 8) ? Math.atan2(capital.vy || 0, capital.vx || 0) : capital.heading;
+    const ca = Math.cos(h), sa = Math.sin(h);
+    const nx = -sa, ny = ca;
+    const f = ship.formF || 0, r = ship.formR || 0;
+    
+    // Calculate formation position relative to capital's predicted position
+    let fx = baseX + ca * f + nx * r;
+    let fy = baseY + sa * f + ny * r;
+    
+    // Avoid land for escort positions
+    const landHit = inLand(fx, fy, ship.kind.radius + 30);
+    if (landHit) {
+      const dx = fx - landHit.x, dy = fy - landHit.y;
+      const d = Math.hypot(dx, dy) || 1;
+      const want = landHit.r + ship.kind.radius + 50;
+      fx = landHit.x + (dx / d) * want;
+      fy = landHit.y + (dy / d) * want;
+    }
+    
+    return { x: clamp(fx, 0, WORLD.w), y: clamp(fy, 0, WORLD.h) };
+  }
+
+
+  function avoidLandTarget(ship, tx, ty) {
+    // Keep AI from steering into islands/shore (aggressive circle avoidance).
+    let x = tx, y = ty;
+    const m = mapById(state.mapId);
+    const pad = (ship && ship.kind) ? (ship.kind.radius + 60) : 80; // Increased padding
+    
+    // If target is inside land, push it outside.
+    for (let k = 0; k < 5; k++) { // More iterations
+      const hit = inLand(x, y, pad);
+      if (!hit) break;
+      const dx = x - hit.x, dy = y - hit.y;
+      const d = Math.hypot(dx, dy) || 1;
+      const want = hit.r + pad + 30; // Extra margin
+      x = hit.x + (dx / d) * want;
+      y = hit.y + (dy / d) * want;
+    }
+    
+    // If the segment to the target passes too close to land, sidestep around it.
+    const sx = ship.x, sy = ship.y;
+    const vx = x - sx, vy = y - sy;
+    const vv = vx*vx + vy*vy;
+    if (vv > 1e-6) {
+      for (const c of m.land) {
+        const margin = c.r + pad + 40; // Larger margin for path checking
+        const t = clamp(((c.x - sx)*vx + (c.y - sy)*vy) / vv, 0, 1);
+        const cx = sx + vx*t, cy = sy + vy*t;
+        const dx = cx - c.x, dy = cy - c.y;
+        const d = Math.hypot(dx, dy);
+        if (d < margin) {
+          // Choose a tangent direction that moves us away from the island.
+          const nx = (d > 1e-3) ? (dx / d) : 1;
+          const ny = (d > 1e-3) ? (dy / d) : 0;
+          const tx1 = -ny, ty1 = nx;
+          const tx2 = ny, ty2 = -nx;
+          const sgn = ((vx*tx1 + vy*ty1) > (vx*tx2 + vy*ty2)) ? 1 : -1;
+          const off = (margin - d) + 80; // Larger offset
+          x += (sgn > 0 ? tx1 : tx2) * off;
+          y += (sgn > 0 ? ty1 : ty2) * off;
+        }
+      }
+    }
+    
+    // Final check: if result is still in land, find nearest safe point
+    const finalHit = inLand(x, y, pad);
+    if (finalHit) {
+      const dx = x - finalHit.x, dy = y - finalHit.y;
+      const d = Math.hypot(dx, dy) || 1;
+      const want = finalHit.r + pad + 50;
+      x = finalHit.x + (dx / d) * want;
+      y = finalHit.y + (dy / d) * want;
+    }
+    
+    return { x: clamp(x, 0, WORLD.w), y: clamp(y, 0, WORLD.h) };
+  }
+
+function steerToPoint(ship, tx, ty, dt, speedMax) {
+    // Apply land avoidance to target point
+    const safe = avoidLandTarget(ship, tx, ty);
+    tx = safe.x;
+    ty = safe.y;
+    
+    // Check if ship is about to hit land and apply emergency avoidance
+    const m = mapById(state.mapId);
+    const lookAhead = 1.5; // seconds to look ahead
+    const futureX = ship.x + ship.vx * lookAhead;
+    const futureY = ship.y + ship.vy * lookAhead;
+    const dangerPad = ship.kind.radius + 50;
+    
+    for (const c of m.land) {
+      const dx = futureX - c.x, dy = futureY - c.y;
+      const d = Math.hypot(dx, dy);
+      if (d < c.r + dangerPad) {
+        // Emergency: steer away from land
+        const awayAngle = Math.atan2(ship.y - c.y, ship.x - c.x);
+        const emergencyX = ship.x + Math.cos(awayAngle) * 200;
+        const emergencyY = ship.y + Math.sin(awayAngle) * 200;
+        tx = clamp(emergencyX, 0, WORLD.w);
+        ty = clamp(emergencyY, 0, WORLD.h);
+        break;
+      }
+    }
+    
+    const desired = angleTo(ship.x, ship.y, tx, ty);
+    const turn = clamp(normAngle(desired - ship.heading), -1, 1);
+    ship.heading += turn * ship.kind.turnRate * 0.85 * dt;
+    const d = Math.sqrt(dist2(ship.x, ship.y, tx, ty));
+    const want = (d > 260) ? (speedMax * 0.88) : (speedMax * 0.30);
+    const sp = len(ship.vx, ship.vy);
+    const accel = (sp < want) ? ship.kind.accel*0.70 : -ship.kind.accel*0.45;
+    ship.vx += Math.cos(ship.heading) * accel * dt;
+    ship.vy += Math.sin(ship.heading) * accel * dt;
+    return d;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // LAND COLLISION & TERRAIN
+  // ═══════════════════════════════════════════════════════════════════════════
+  function inLand(x, y, pad = 0) {
+    const m = mapById(state.mapId);
+    for (const c of m.land) {
+      const dx = x - c.x, dy = y - c.y;
+      const rr = (c.r + pad);
+      if (dx*dx + dy*dy <= rr*rr) return c;
+    }
+    return null;
+  }
+
+  function resolveShipLand(ship) {
+    const hit = inLand(ship.x, ship.y, ship.kind.radius);
+    if (!hit) { ship.grounded = false; return; }
+    const dx = ship.x - hit.x, dy = ship.y - hit.y;
+    const d = Math.hypot(dx, dy) || 1;
+    const want = hit.r + ship.kind.radius + 0.5;
+    ship.x = hit.x + (dx / d) * want;
+    ship.y = hit.y + (dy / d) * want;
+    const nx = dx / d, ny = dy / d;
+    const vn = ship.vx * nx + ship.vy * ny;
+    if (vn < 0) {
+      ship.vx -= vn * nx * 1.8;
+      ship.vy -= vn * ny * 1.8;
+      ship.vx *= 0.35;
+      ship.vy *= 0.35;
+    }
+    ship.grounded = true;
+    if (ship.team === 'P' && state.time > (ship.groundMsgUntil || 0)) {
+      ship.groundMsgUntil = state.time + 1.2;
+      showMsg('Grounded!');
+    }
+  }
+
+  // Organic island shoreline shape
+  function islandR(c, a, extra) {
+    const r0 = c.r + (extra || 0);
+    const s1 = Math.sin(a * 3 + (c.x + c.y) * 0.0021);
+    const s2 = Math.sin(a * 7 + (c.x - c.y) * 0.0017);
+    const s3 = Math.sin(a * 11 + (c.x * 0.0013));
+    const wob = 1 + 0.115 * s1 + 0.070 * s2 + 0.035 * s3;
+    return Math.max(8, r0 * wob);
+  }
+
+  function islandPath(c, extra) {
+    const n = 72;
+    for (let i = 0; i <= n; i++) {
+      const a = (i / n) * TAU;
+      const r = islandR(c, a, extra);
+      const x = c.x + Math.cos(a) * r;
+      const y = c.y + Math.sin(a) * r;
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SHIP & UNIT DEFINITIONS
+  // ═══════════════════════════════════════════════════════════════════════════
+  const DRAG_DD = 0.9965;
+  const DRAG_BB = 0.9975;
+  const SHIP_SPEED_SCALE = 0.75;
+  const SHIP_ACCEL_SCALE = 0.75;
+
+  const DD = {
+    type: 'DD', radius: 14, hp: 130, armor: 0.06,
+    maxSpeed: 95 * SHIP_SPEED_SCALE, accel: 56 * SHIP_ACCEL_SCALE, turnRate: 2.1,
+    gunRange: 580, shellSpeed: 270, gunReload: 1.24, shellDmg: 20, salvo: 1,
+    smokeCooldown: 7.5, smokeDuration: 4.5, smokeRadius: 140,
+    missileReload: 10.0, missileAmmoMax: 2,
+  };
+
+  const BB = {
+    type: 'BB', radius: 22, hp: 340, armor: 0.16,
+    maxSpeed: 65 * SHIP_SPEED_SCALE, accel: 34 * SHIP_ACCEL_SCALE, turnRate: 1.25,
+    gunRange: 720, shellSpeed: 300, gunReload: 2.50, shellDmg: 26, salvo: 3,
+    smokeCooldown: 0, smokeDuration: 0, smokeRadius: 0,
+    missileReload: 0, missileAmmoMax: 0,
+  };
+
+  const TB = {
+    type: 'TB', radius: 12, hp: 60, armor: 0.03,
+    maxSpeed: 110 * SHIP_SPEED_SCALE, accel: 75 * SHIP_ACCEL_SCALE, turnRate: 2.55,
+    gunRange: 0, shellSpeed: 0, gunReload: 0, shellDmg: 0, salvo: 0,
+    smokeCooldown: 0, smokeDuration: 0, smokeRadius: 0,
+    missileReload: 10.0, missileAmmoMax: 4,
+  };
+
+  const CV = {
+    type: 'CV', radius: 26, hp: 360, armor: 0.12,
+    maxSpeed: 58 * SHIP_SPEED_SCALE, accel: 28 * SHIP_ACCEL_SCALE, turnRate: 0.95,
+    gunRange: 0, shellSpeed: 0, gunReload: 0, shellDmg: 0, salvo: 0,
+    smokeCooldown: 0, smokeDuration: 0, smokeRadius: 0,
+    missileReload: 0, missileAmmoMax: 0, airCooldown: 9.0,
+  };
+
+  const BATTERY = {
+    type: 'BAT', radius: 12, hp: 140, armor: 0.10,
+    maxSpeed: 0, accel: 0, turnRate: 0,
+    gunRange: 860, shellSpeed: 320, gunReload: 3.6, shellDmg: 18, salvo: 2,
+  };
+
+  const MISSILE = { speed: 125, dmg: 42, ttl: 7.0, turnRate: 1.6, radius: 6.0 };
+  const FX = { splashTtl: 0.55, hitTtl: 0.35, fireTtl: 1.6, boomTtl: 0.55 };
+  const WATER = { t: 0 };
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ENHANCED TEXTURE GENERATION
+  // ═══════════════════════════════════════════════════════════════════════════
+  function makeNoisePattern(size, aMin, aMax, r0, g0, b0) {
+    const oc = document.createElement('canvas');
+    oc.width = oc.height = size;
+    const o = oc.getContext('2d');
+    const img = o.createImageData(size, size);
+    for (let i = 0; i < img.data.length; i += 4) {
+      const a = aMin + Math.random() * (aMax - aMin);
+      img.data[i+0] = r0 + (Math.random() * 30) | 0;
+      img.data[i+1] = g0 + (Math.random() * 30) | 0;
+      img.data[i+2] = b0 + (Math.random() * 30) | 0;
+      img.data[i+3] = a | 0;
+    }
+    o.putImageData(img, 0, 0);
+    o.globalAlpha = 0.35;
+    o.drawImage(oc, -1, 0); o.drawImage(oc, 1, 0); o.drawImage(oc, 0, -1); o.drawImage(oc, 0, 1);
+    return ctx.createPattern(oc, 'repeat');
+  }
+
+  // Enhanced water texture with more detail
+  function makeDetailedWaterPattern() {
+    const oc = document.createElement('canvas');
+    oc.width = oc.height = 256;
+    const o = oc.getContext('2d');
+    // Base deep water
+    const grad = o.createLinearGradient(0, 0, 256, 256);
+    grad.addColorStop(0, 'rgba(8,60,120,0.4)');
+    grad.addColorStop(0.5, 'rgba(15,90,150,0.35)');
+    grad.addColorStop(1, 'rgba(5,50,100,0.4)');
+    o.fillStyle = grad;
+    o.fillRect(0, 0, 256, 256);
+    // Add noise
+    const img = o.getImageData(0, 0, 256, 256);
+    for (let i = 0; i < img.data.length; i += 4) {
+      const n = (Math.random() - 0.5) * 20;
+      img.data[i+0] = clamp(img.data[i+0] + n, 0, 255);
+      img.data[i+1] = clamp(img.data[i+1] + n * 1.2, 0, 255);
+      img.data[i+2] = clamp(img.data[i+2] + n * 0.8, 0, 255);
+    }
+    o.putImageData(img, 0, 0);
+    return ctx.createPattern(oc, 'repeat');
+  }
+
+  // Enhanced land texture with vegetation detail
+  function makeDetailedLandPattern() {
+    const oc = document.createElement('canvas');
+    oc.width = oc.height = 128;
+    const o = oc.getContext('2d');
+    // Base green
+    o.fillStyle = 'rgb(45,95,55)';
+    o.fillRect(0, 0, 128, 128);
+    // Add vegetation noise
+    const img = o.getImageData(0, 0, 128, 128);
+    for (let i = 0; i < img.data.length; i += 4) {
+      const px = (i/4) % 128;
+      const py = Math.floor((i/4) / 128);
+      const n1 = Math.sin(px * 0.15) * Math.cos(py * 0.12) * 15;
+      const n2 = (Math.random() - 0.5) * 25;
+      img.data[i+0] = clamp(img.data[i+0] + n1 + n2 * 0.6, 20, 80);
+      img.data[i+1] = clamp(img.data[i+1] + n1 * 1.3 + n2, 60, 140);
+      img.data[i+2] = clamp(img.data[i+2] + n1 * 0.5 + n2 * 0.4, 30, 90);
+      img.data[i+3] = 180 + Math.random() * 75;
+    }
+    o.putImageData(img, 0, 0);
+    return ctx.createPattern(oc, 'repeat');
+  }
+
+  const WATER_TEX = { pattern: null };
+  const LAND = { pattern: null };
+  
+  // Warship sprite for battleships
+  const WARSHIP_SPRITE = new Image();
+  WARSHIP_SPRITE.src = 'warship.png';
+  
+  // Initialize patterns after ctx is ready
+  setTimeout(() => {
+    WATER_TEX.pattern = makeDetailedWaterPattern();
+    LAND.pattern = makeDetailedLandPattern();
+  }, 0);
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // INPUT HANDLING
+  // ═══════════════════════════════════════════════════════════════════════════
+  const keys = new Set();
+  const mouse = { x: VIEW.w/2, y: VIEW.h/2 };
+
+  canvas.addEventListener('mousemove', (e) => {
+    const r = canvas.getBoundingClientRect();
+    mouse.x = (e.clientX - r.left) * (canvas.width / r.width);
+    mouse.y = (e.clientY - r.top) * (canvas.height / r.height);
+  });
+
+  canvas.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
+    if (!state.started || state.menuOpen || state.ended) return;
+    const ship = state.player[state.selected];
+    if (!ship || !ship.alive) return;
+    const tx = state.camX + mouse.x;
+    const ty = state.camY + mouse.y;
+    tryFireAtPoint(ship, tx, ty, 0.85);
+  });
+
+  window.addEventListener('keydown', (e) => {
+    if (["Space"].includes(e.code)) e.preventDefault();
+    if (e.code === 'Tab') e.preventDefault();
+    keys.add(e.code);
+    
+    if (e.code === 'Escape' || e.code === 'KeyM') { toggleMenu(); return; }
+    if (!state.started || state.menuOpen) return;
+    
+    if (e.code === 'Tab') {
+      const dir = e.shiftKey ? -1 : 1;
+      const n = state.player.length;
+      for (let k = 1; k <= n; k++) {
+        const j = (state.selected + dir*k + n*10) % n;
+        const s = state.player[j];
+        if (s && s.alive) { state.selected = j; break; }
+      }
+      return;
+    }
+    
+    if (e.code === 'Digit1') state.selected = 0;
+    if (e.code === 'Digit2') state.selected = 1;
+    if (e.code === 'Digit3') state.selected = 2;
+    if (e.code === 'Digit4') state.selected = 3;
+    if (e.code === 'KeyR') restartLevel();
+    if (e.code === 'KeyE') trySmoke(state.player[state.selected]);
+    if (e.code === 'KeyQ') tryMissile(state.player[state.selected]);
+    if (e.code === 'KeyF') tryExtinguish(state.player[state.selected]);
+    if (e.code === 'KeyT') {
+      const s = state.player[state.selected];
+      if (!s) return;
+      if (s.kind.type === 'BB') tryRecon(s);
+      else if (s.kind.type === 'CV') {
+        if (e.shiftKey) tryRecon(s);
+        else tryLaunchFighters(s);
+      }
+    }
+  });
+
+  window.addEventListener('keyup', (e) => keys.delete(e.code));
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // GAME STATE
+  // ═══════════════════════════════════════════════════════════════════════════
+  const state = {
+    started: false, menuOpen: true, diffKey: 'med', mapId: 0, playerClass: 'dd',
+    shotsFired: false, level: 1, selected: 0, time: 0, camX: 0, camY: 0,
+    player: [], enemy: [], shells: [], missiles: [], smokes: [], fx: [],
+    dolphins: [], aircraft: [], bullets: [], batteries: [],
+    recons: [], ended: false,
+  };
+
+  function diff() { return DIFFS[state.diffKey] || DIFFS.med; }
+
+  function setDifficulty(key) {
+    state.diffKey = key;
+    ui.diffEasy.classList.toggle('sel', key === 'easy');
+    ui.diffMed.classList.toggle('sel', key === 'med');
+    ui.diffHard.classList.toggle('sel', key === 'hard');
+  }
+
+  function setMap(id) {
+    state.mapId = id|0;
+    ui.map0.classList.toggle('sel', state.mapId === 0);
+    ui.map1.classList.toggle('sel', state.mapId === 1);
+    ui.map2.classList.toggle('sel', state.mapId === 2);
+  }
+
+  function className(key) { 
+    return key === 'cv' ? 'Aircraft carrier' : (key === 'bb' ? 'Battleship' : (key === 'tb' ? 'Torpedo boat' : 'Destroyer')); 
+  }
+
+  function setPlayerClass(key) {
+    state.playerClass = key;
+    ui.classDD.classList.toggle('sel', key === 'dd');
+    ui.classBB.classList.toggle('sel', key === 'bb');
+    ui.classTB.classList.toggle('sel', key === 'tb');
+    ui.classCV.classList.toggle('sel', key === 'cv');
+  }
+
+  function syncMenuButton() { ui.startBtn.textContent = state.started ? 'Resume' : 'Start'; }
+  function showMenu() {
+    state.menuOpen = true;
+    syncMenuButton();
+    ui.menu.style.display = 'grid';
+    // Ensure the canvas can't intercept clicks while the HTML menu is open.
+    canvas.style.pointerEvents = 'none';
+  }
+  function hideMenu() {
+    state.menuOpen = false;
+    ui.menu.style.display = 'none';
+    canvas.style.pointerEvents = 'auto';
+  }
+  function toggleMenu() { if (state.menuOpen) hideMenu(); else showMenu(); }
+
+  function showMsg(text, ms = 1600) {
+    ui.msg.textContent = text;
+    ui.msg.style.display = 'block';
+    clearTimeout(showMsg._t);
+    showMsg._t = setTimeout(() => ui.msg.style.display = 'none', ms);
+  }
+
+  function withinWorld(obj, radius) {
+    obj.x = clamp(obj.x, radius, WORLD.w - radius);
+    obj.y = clamp(obj.y, radius, WORLD.h - radius);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ENTITY CREATION
+  // ═══════════════════════════════════════════════════════════════════════════
+  function mkShip(team, kind, x, y, heading, tag) {
+    const ammoMax = (kind.missileAmmoMax != null) ? kind.missileAmmoMax : (kind.type === 'TB' ? 4 : (kind.type === 'DD' ? 2 : 0));
+    return {
+      team, kind, tag, x, y, vx: 0, vy: 0, heading, turret: heading,
+      hp: kind.hp, alive: true, gunCd: 0, smokeCd: 0, missileCd: 0, airCd: 0,
+      missileAmmoMax: ammoMax, missileAmmo: ammoMax, extCd: 0,
+      onFire: false, fireDps: kind.hp * 0.050,
+      flooding: false, floodDps: kind.hp * 0.020, fireUntil: 0,
+      detP: false, detE: false, blinkUntilP: 0, blinkUntilE: 0, trail: [],
+      ai: { strafe: Math.random() < 0.5 ? -1 : 1, think: 0, wpX: x, wpY: y, wpUntil: 0 },
+      formKey: 'lineAhead', formRank: 0, formF: 0, formR: 0,
+    };
+  }
+
+  function mkBattery(team, x, y, heading) {
+    return {
+      team, kind: BATTERY, tag: 'US Coastal Battery',
+      x, y, vx: 0, vy: 0, heading, turret: heading,
+      hp: BATTERY.hp, alive: true, gunCd: rand(0, BATTERY.gunReload * 0.8),
+      detP: false, detE: false, blinkUntilP: 0, blinkUntilE: 0,
+      lastSeenP: null, lastSeenE: null,
+    };
+  }
+
+  function spawnCoastalBatteries(m) {
+    state.batteries = [];
+    const maxPerTeam = 7;
+    const spawns = (m.pSpawn || []).concat(m.eSpawn || []).map(a => ({ x: a[0], y: a[1] }));
+    const tooCloseToSpawn = (x, y) => {
+      for (const s of spawns) { if (dist2(x, y, s.x, s.y) < 520*520) return true; }
+      return false;
+    };
+    const tryPlace = (team, c, a) => {
+      const r = Math.max(10, c.r - 10);
+      const x = c.x + Math.cos(a) * r;
+      const y = c.y + Math.sin(a) * r;
+      if (!inLand(x, y, 1)) return false;
+      if (tooCloseToSpawn(x, y)) return false;
+      for (const b of state.batteries) { if (dist2(x, y, b.x, b.y) < 120*120) return false; }
+      state.batteries.push(mkBattery(team, x, y, a));
+      return true;
+    };
+    const placeTeam = (team) => {
+      const wantLeft = (team === 'P');
+      const land = m.land.slice().sort((a,b) => b.r - a.r);
+      let placed = 0;
+      for (const c of land) {
+        if (placed >= maxPerTeam) break;
+        if (wantLeft && c.x > WORLD.w * 0.60) continue;
+        if (!wantLeft && c.x < WORLD.w * 0.40) continue;
+        const attempts = (c.r > 180) ? 4 : 2;
+        for (let k = 0; k < attempts && placed < maxPerTeam; k++) {
+          const a = rand(0, TAU);
+          if (tryPlace(team, c, a)) placed++;
+        }
+      }
+    };
+    placeTeam('P');
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // WORLD RESET
+  // ═══════════════════════════════════════════════════════════════════════════
+  function resetWorld(level) {
+    state.level = level;
+    state.ended = false;
+    state.time = 0;
+    WATER.t = 0;
+    state.shells.length = 0;
+    state.missiles.length = 0;
+    state.smokes.length = 0;
+    state.fx.length = 0;
+    state.aircraft.length = 0;
+    state.bullets.length = 0;
+    state.batteries.length = 0;
+    state.recons.length = 0;
+    state.selected = 0;
+
+    const m = mapById(state.mapId);
+    const b = battleByMap(state.mapId);
+    const pCount = clamp(b.pCount|0, 4, 16);
+    const eCount = clamp(b.eCount|0, 4, 16);
+    const pSpawn = formationSpawns(m.pSpawn[0], b.pForm, pCount);
+    const eSpawn = formationSpawns(m.eSpawn[0], b.eForm, eCount);
+
+    const US = {
+      DD: ['USS Fletcher','USS Johnston','USS Laffey','USS OBannon','USS Kidd','USS Radford','USS Buchanan','USS McCalla','USS Sims','USS Benson','USS Daly','USS Cushing','USS Hoel','USS Heermann'],
+      BB: ['USS Iowa','USS South Dakota','USS Washington','USS North Carolina','USS Missouri'],
+      CV: ['USS Enterprise','USS Yorktown','USS Hornet','USS Lexington','USS Saratoga'],
+      TB: ['PT-109','PT-41','PT-59','PT-103','PT-105','PT-314'],
+    };
+    const IJN = {
+      DD: ['IJN Kagerō','IJN Yukikaze','IJN Shigure','IJN Kuroshio','IJN Akigumo','IJN Hamakaze','IJN Isokaze','IJN Nowaki','IJN Tanikaze','IJN Shiratsuyu','IJN Asashio','IJN Michishio','IJN Urakaze','IJN Arashi'],
+      BB: ['IJN Yamato','IJN Nagato','IJN Kongō','IJN Haruna','IJN Kirishima'],
+      CV: ['IJN Akagi','IJN Kaga','IJN Sōryū','IJN Hiryū','IJN Shōkaku','IJN Zuikaku'],
+      TB: ['Kaibōkan','Torpedo Boat','Patrol Boat'],
+    };
+    const pickName = (pool, kindKey, idx) => {
+      const arr = pool[kindKey] || ['Ship'];
+      return arr[idx % arr.length];
+    };
+    const playerKind = (state.playerClass === 'cv') ? CV : ((state.playerClass === 'bb') ? BB : (state.playerClass === 'tb' ? TB : DD));
+    const planKinds = (side, count, firstKind) => {
+      const out = [];
+      if (firstKind) out.push(firstKind);
+      const wantCV = (state.mapId === 0 || state.mapId === 2);
+      const wantBB = true;
+      const wantTB = (state.mapId === 2) ? 2 : 1;
+      const pushIf = (kind) => { if (out.length < count && !out.includes(kind)) out.push(kind); };
+      if (side === 'P') {
+        if (wantCV) pushIf(CV);
+        if (wantBB) pushIf(BB);
+        for (let i = 0; i < wantTB; i++) { if (out.length < count) out.push(TB); }
+        while (out.length < count) out.push(DD);
+      } else {
+        if (wantCV) out.push(CV);
+        if (wantBB && out.length < count) out.push(BB);
+        for (let i = 0; i < wantTB; i++) { if (out.length < count) out.push((level >= 2) ? TB : DD); }
+        while (out.length < count) out.push(DD);
+      }
+      return out.slice(0, count);
+    };
+    const pKinds = planKinds('P', pCount, playerKind);
+    const eKinds = planKinds('E', eCount, null);
+
+    state.player = [];
+    for (let i = 0; i < pKinds.length; i++) {
+      const k = pKinds[i];
+      const key = k.type;
+      const tag = pickName(US, key, i);
+      state.player.push(mkShip('P', k, pSpawn[i][0], pSpawn[i][1], pSpawn[i][2], tag));
+    }
+    state.enemy = [];
+    for (let i = 0; i < eKinds.length; i++) {
+      const k = eKinds[i];
+      const key = k.type;
+      const tag = pickName(IJN, key, i);
+      state.enemy.push(mkShip('E', k, eSpawn[i][0], eSpawn[i][1], eSpawn[i][2], tag));
+    }
+    setFormation(state.player, b.pForm);
+    setFormation(state.enemy, b.eForm);
+    spawnCoastalBatteries(m);
+    state.camX = state.player[0].x - VIEW.w/2;
+    state.camY = state.player[0].y - VIEW.h/2;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // COMBAT ACTIONS
+  // ═══════════════════════════════════════════════════════════════════════════
+  function smokeAt(x, y, team, kind) {
+    state.smokes.push({ x, y, team, born: state.time, until: state.time + kind.smokeDuration, radius: kind.smokeRadius });
+  }
+
+  function trySmoke(ship) {
+    if (!ship || !ship.alive) return;
+    if (!ship.kind.smokeCooldown || ship.kind.smokeCooldown <= 0) { if (ship.team === 'P') showMsg('No smoke'); return; }
+    if (ship.smokeCd > 0) { showMsg('Smoke reloading...'); return; }
+    ship.smokeCd = ship.kind.smokeCooldown;
+    smokeAt(ship.x, ship.y, ship.team, ship.kind);
+    showMsg('Smoke deployed');
+  }
+
+  function inSmoke(ship) {
+    for (const s of state.smokes) {
+      if (state.time > s.until) continue;
+      const r2 = s.radius * s.radius;
+      if (dist2(ship.x, ship.y, s.x, s.y) <= r2) return true;
+    }
+    return false;
+  }
+
+  function turretStep(ship, dt, targetAngle) {
+    const maxTurretRate = 4.0;
+    const delta = normAngle(targetAngle - ship.turret);
+    ship.turret += clamp(delta, -maxTurretRate*dt, maxTurretRate*dt);
+  }
+
+  function qbez(p0, p1, p2, t) {
+    const u = 1 - t;
+    return u*u*p0 + 2*u*t*p1 + t*t*p2;
+  }
+
+  function shellPos(sh, t) {
+    return { x: qbez(sh.sx, sh.cx, sh.ex, t), y: qbez(sh.sy, sh.cy, sh.ey, t) };
+  }
+
+  function fireShellAtPoint(shooter, tx, ty, spread, dmg) {
+    const dx0 = tx - shooter.x;
+    const dy0 = ty - shooter.y;
+    const dist0 = Math.max(1, Math.hypot(dx0, dy0));
+    const baseA = Math.atan2(dy0, dx0);
+    const a = baseA + rand(-spread, spread);
+    const ex = shooter.x + Math.cos(a) * dist0;
+    const ey = shooter.y + Math.sin(a) * dist0;
+    shotSpotting(shooter, ex, ey);
+
+    const sx = shooter.x + Math.cos(baseA) * (shooter.kind.radius + 10);
+    const sy = shooter.y + Math.sin(baseA) * (shooter.kind.radius + 10);
+    const mx = (sx + ex) * 0.5;
+    const my = (sy + ey) * 0.5;
+    const pdx = -(ey - sy);
+    const pdy =  (ex - sx);
+    const pl = Math.hypot(pdx, pdy) || 1;
+    const arc = clamp(dist0 * 0.22, 90, 260) * (Math.random() < 0.5 ? -1 : 1);
+    const cx = mx + (pdx / pl) * arc;
+    const cy = my + (pdy / pl) * arc;
+    const dist = Math.hypot(ex - sx, ey - sy);
+    const tt = clamp(dist / shooter.kind.shellSpeed, 0.70, 4.6);
+    const impactR = shooter.kind.type === 'BB' ? 20 : 16;
+    state.shells.push({ team: shooter.team, sx, sy, cx, cy, ex, ey, x: sx, y: sy, t: 0, tt, dmg, impactR });
+  }
+
+  function tryFireAtPoint(ship, tx, ty, accuracy) {
+    if (!ship.alive) return;
+    if (!ship.kind.gunRange || ship.kind.gunRange <= 0 || !ship.kind.shellDmg || ship.kind.shellDmg <= 0) { 
+      if (ship.team === 'P') showMsg('No guns'); return; 
+    }
+    if (ship.gunCd > 0) return;
+    const d = Math.hypot(tx - ship.x, ty - ship.y);
+    if (d > ship.kind.gunRange) { showMsg('Out of range'); return; }
+    ship.gunCd = ship.kind.gunReload;
+    const spread = lerp(0.10, 0.02, clamp(accuracy, 0, 1));
+    const salvo = ship.kind.salvo || 1;
+    if (salvo === 1) {
+      fireShellAtPoint(ship, tx, ty, spread, ship.kind.shellDmg);
+    } else {
+      const base = spread * 0.85;
+      for (let i = 0; i < salvo; i++) fireShellAtPoint(ship, tx, ty, base, ship.kind.shellDmg);
+    }
+  }
+
+  function tryMissile(ship) {
+    if (!ship || !ship.alive) return;
+    if (!ship.missileAmmoMax || ship.missileAmmoMax <= 0 || !ship.kind.missileReload || ship.kind.missileReload <= 0) { 
+      if (ship.team === 'P') showMsg('No torpedoes'); return; 
+    }
+    if (ship.missileAmmo <= 0) { showMsg('No torpedoes loaded'); return; }
+    ship.missileAmmo -= 1;
+    if (ship.missileAmmo < ship.missileAmmoMax && ship.missileCd <= 0) ship.missileCd = ship.kind.missileReload;
+    const a = ship.turret;
+    const sx = ship.x + Math.cos(a) * (ship.kind.radius + 14);
+    const sy = ship.y + Math.sin(a) * (ship.kind.radius + 14);
+    const vx = Math.cos(a) * MISSILE.speed;
+    const vy = Math.sin(a) * MISSILE.speed;
+    state.missiles.push({ team: ship.team, x: sx, y: sy, vx, vy, a, ttl: MISSILE.ttl, dmg: MISSILE.dmg });
+  }
+
+  function tryExtinguish(ship, silent = false) {
+    if (!ship || !ship.alive) return;
+    if (!ship.onFire) { if (!silent && ship.team === 'P') showMsg('No fire'); return; }
+    if (ship.extCd > 0) { if (!silent && ship.team === 'P') showMsg(`Extinguisher reloading ${ship.extCd.toFixed(1)}s`); return; }
+    ship.onFire = false;
+    ship.extCd = 10.0;
+    if (!silent && ship.team === 'P') showMsg('Fire extinguished');
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // DAMAGE & STATUS
+  // ═══════════════════════════════════════════════════════════════════════════
+  function sinkIfDead(ship) {
+    if (ship.hp > 0 || !ship.alive) return;
+    ship.alive = false;
+    ship.hp = 0;
+    state.fx.push({ type: 'splash', x: ship.x, y: ship.y, until: state.time + FX.splashTtl });
+  }
+
+  function damageShip(ship, rawDmg, cause = 'generic') {
+    const reduced = rawDmg * (1 - ship.kind.armor);
+    ship.hp -= reduced;
+    ship.fireUntil = Math.max(ship.fireUntil, state.time + FX.fireTtl);
+    state.fx.push({ type: 'hit', x: ship.x, y: ship.y, until: state.time + FX.hitTtl });
+    if (cause === 'shell' && ship.alive && !ship.onFire && Math.random() < 0.30) ship.onFire = true;
+    sinkIfDead(ship);
+  }
+
+  function damageBattery(b, rawDmg, cause = 'generic') {
+    if (!b || !b.alive) return;
+    const reduced = rawDmg * (1 - (b.kind.armor || 0));
+    b.hp -= reduced;
+    state.fx.push({ type: 'hit', x: b.x, y: b.y, until: state.time + FX.hitTtl });
+    if (b.hp <= 0) {
+      b.alive = false;
+      b.hp = 0;
+      state.fx.push({ type: 'boom', x: b.x, y: b.y, until: state.time + FX.boomTtl });
+    }
+  }
+
+  function statusStep(dt) {
+    const all = state.player.concat(state.enemy);
+    for (const s of all) {
+      if (!s.alive) continue;
+      if (s.onFire) {
+        s.hp -= s.fireDps * dt;
+        if (Math.random() < 0.8 * dt) s.fireUntil = Math.max(s.fireUntil, state.time + 0.25);
+      }
+      if (s.flooding) s.hp -= s.floodDps * dt;
+      sinkIfDead(s);
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // DETECTION & RADAR
+  // ═══════════════════════════════════════════════════════════════════════════
+  const RADAR_RANGE = 0.46 * Math.min(VIEW.w, VIEW.h);
+  const RADAR_R2 = RADAR_RANGE * RADAR_RANGE;
+  const BLINK_SECS = 2.0;
+  const DET_STICKY = 10.0;
+  const SHOT_SPOT_RANGE = 170;
+  const SHOT_SPOT_R2 = SHOT_SPOT_RANGE * SHOT_SPOT_RANGE;
+
+  function revealToTeam(ship, team) {
+    if (!ship || !ship.alive) return;
+    if (team === 'P') { ship.lastSeenP = state.time; ship.detP = true; ship.blinkUntilP = state.time + BLINK_SECS; }
+    else { ship.lastSeenE = state.time; ship.detE = true; ship.blinkUntilE = state.time + BLINK_SECS; }
+  }
+
+  function shotSpotting(shooter, impactX, impactY) {
+    if (!shooter || shooter.team !== 'E' || !shooter.alive) return;
+    for (const p of state.player) {
+      if (!p.alive) continue;
+      if (dist2(p.x, p.y, impactX, impactY) <= SHOT_SPOT_R2) { revealToTeam(shooter, 'P'); break; }
+    }
+  }
+
+  function canSee(team, targetShip) {
+    return team === 'P' ? !!targetShip.detP : !!targetShip.detE;
+  }
+
+  function updateDetections() {
+    const batsP = state.batteries.filter(b => b.alive && b.team === 'P');
+    const batsE = state.batteries.filter(b => b.alive && b.team === 'E');
+    const sensorsP = state.player.filter(s => s.alive).concat(batsP);
+    const sensorsE = state.enemy.filter(s => s.alive).concat(batsE);
+    const targetsE = state.enemy.concat(state.batteries.filter(b => b.team === 'E'));
+    const targetsP = state.player.concat(state.batteries.filter(b => b.team === 'P'));
+    
+    for (const t of targetsE) {
+      const prev = !!t.detP;
+      let now = false;
+      if (t.alive) {
+        for (const s of sensorsP) {
+          if (!s.alive) continue;
+          if (dist2(s.x, s.y, t.x, t.y) <= RADAR_R2) { now = true; break; }
+        }
+      }
+      if (!t.alive) { t.detP = false; }
+      else {
+        if (now) t.lastSeenP = state.time;
+        t.detP = (t.lastSeenP != null) && ((state.time - t.lastSeenP) <= DET_STICKY);
+      }
+      if (now && !prev) t.blinkUntilP = state.time + BLINK_SECS;
+    }
+    
+    for (const t of targetsP) {
+      const prev = !!t.detE;
+      let now = false;
+      if (t.alive) {
+        for (const s of sensorsE) {
+          if (!s.alive) continue;
+          if (dist2(s.x, s.y, t.x, t.y) <= RADAR_R2) { now = true; break; }
+        }
+      }
+      if (!t.alive) { t.detE = false; }
+      else {
+        if (now) t.lastSeenE = state.time;
+        t.detE = (t.lastSeenE != null) && ((state.time - t.lastSeenE) <= DET_STICKY);
+      }
+      if (now && !prev) t.blinkUntilE = state.time + BLINK_SECS;
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // RECON PLANE
+  // ═══════════════════════════════════════════════════════════════════════════
+  const RECON = { speed: 210, turnRate: 3.2, vision: 540, ttl: 18.0, cooldown: 18.0 };
+  const RECON_V2 = RECON.vision * RECON.vision;
+
+  function reconPickWaypoint() {
+    for (let i = 0; i < 12; i++) {
+      const x = rand(220, WORLD.w - 220);
+      const y = rand(220, WORLD.h - 220);
+      if (!inLand(x, y, 36)) return { x, y };
+    }
+    return { x: rand(220, WORLD.w - 220), y: rand(220, WORLD.h - 220) };
+  }
+
+  function tryRecon(ship, silent = false) {
+    if (!ship || !ship.alive) return;
+    if (ship.kind.type !== 'BB' && ship.kind.type !== 'CV') {
+      if (!silent && ship.team === 'P') showMsg('Recon plane only available on Battleships/Carriers');
+      return;
+    }
+    if (!('reconCd' in ship)) ship.reconCd = 0;
+    if (!state.recons) state.recons = [];
+    for (const r of state.recons) {
+      if (r && r.homeShip === ship) {
+        if (!silent && ship.team === 'P') showMsg('Recon plane already airborne');
+        return;
+      }
+    }
+    if (ship.reconCd > 0) {
+      if (!silent && ship.team === 'P') showMsg(`Recon rearming ${ship.reconCd.toFixed(1)}s`);
+      return;
+    }
+    const wp = reconPickWaypoint();
+    const team = ship.team;
+    const r = {
+      team, x: ship.x, y: ship.y, a: ship.heading,
+      vx: Math.cos(ship.heading) * RECON.speed, vy: Math.sin(ship.heading) * RECON.speed,
+      homeShip: ship, homeX: ship.x, homeY: ship.y,
+      ttl: RECON.ttl, mode: 'patrol', wpX: wp.x, wpY: wp.y, wpUntil: state.time + rand(3.8, 6.2),
+      spotted: new Set(),
+    };
+    state.recons.push(r);
+    ship.reconCd = RECON.cooldown;
+    if (!silent && team === 'P') showMsg('Recon plane launched');
+  }
+
+
+  function reconStep(dt) {
+    // Cooldowns are per ship (independent recon planes).
+    for (const s of state.player) { if (s && s.alive && s.reconCd > 0) s.reconCd = Math.max(0, s.reconCd - dt); }
+    for (const s of state.enemy) { if (s && s.alive && s.reconCd > 0) s.reconCd = Math.max(0, s.reconCd - dt); }
+    if (!state.recons || state.recons.length === 0) return;
+    const next = [];
+    for (const r of state.recons) {
+      if (!r) continue;
+      r.ttl -= dt;
+      if (r.ttl <= 0 && r.mode !== 'return') r.mode = 'return';
+      const targets = (r.team === 'P') ? state.enemy : state.player;
+      for (const e of targets) {
+        if (!e.alive) continue;
+        if (dist2(r.x, r.y, e.x, e.y) <= RECON_V2) { revealToTeam(e, r.team); r.spotted.add(e); }
+      }
+      const aliveTargets = targets.filter(e => e.alive);
+      if (r.mode === 'patrol') {
+        let allSpotted = aliveTargets.length > 0;
+        for (const e of aliveTargets) { if (!r.spotted.has(e)) { allSpotted = false; break; } }
+        if (allSpotted) r.mode = 'return';
+      }
+      const homeAlive = r.homeShip && r.homeShip.alive;
+      const homeX = homeAlive ? r.homeShip.x : r.homeX;
+      const homeY = homeAlive ? r.homeShip.y : r.homeY;
+      if (r.mode === 'patrol') {
+        if (state.time > r.wpUntil || dist2(r.x, r.y, r.wpX, r.wpY) < 140*140) {
+          const wp = reconPickWaypoint();
+          r.wpX = wp.x; r.wpY = wp.y;
+          r.wpUntil = state.time + rand(3.8, 6.2);
+        }
+        const desired = angleTo(r.x, r.y, r.wpX, r.wpY);
+        const turn = clamp(normAngle(desired - r.a), -1, 1);
+        r.a += turn * RECON.turnRate * dt;
+      } else {
+        const desired = angleTo(r.x, r.y, homeX, homeY);
+        const turn = clamp(normAngle(desired - r.a), -1, 1);
+        r.a += turn * RECON.turnRate * 1.05 * dt;
+      }
+      r.vx = Math.cos(r.a) * RECON.speed;
+      r.vy = Math.sin(r.a) * RECON.speed;
+      r.x += r.vx * dt;
+      r.y += r.vy * dt;
+      r.x = clamp(r.x, 0, WORLD.w);
+      r.y = clamp(r.y, 0, WORLD.h);
+      if (r.mode === 'return' && dist2(r.x, r.y, homeX, homeY) < 22*22) {
+        if (r.team === 'P') showMsg('Recon plane recovered');
+        continue;
+      }
+      next.push(r);
+    }
+    state.recons = next;
+  }
+
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // CARRIER FIGHTERS
+  // ═══════════════════════════════════════════════════════════════════════════
+  const FIGHTER = { speed: 255, vision: 390, ttl: 12.0, gunRange: 360, fireEvery: 0.16, bulletSpeed: 500, dmg: 7, hp: 20, radius: 9 };
+  const FIGHTER_V2 = FIGHTER.vision * FIGHTER.vision;
+
+  function tryLaunchFighters(ship, silent = false) {
+    if (!ship || !ship.alive) return;
+    if (ship.kind.type !== 'CV') return;
+    if (ship.airCd > 0) { if (!silent && ship.team === 'P') showMsg(`Air wing rearming ${ship.airCd.toFixed(1)}s`); return; }
+    const a = ship.heading;
+    const nx = -Math.sin(a), ny = Math.cos(a);
+    const baseX = ship.x + Math.cos(a) * (ship.kind.radius + 12);
+    const baseY = ship.y + Math.sin(a) * (ship.kind.radius + 12);
+    const mk = (side) => ({
+      team: ship.team, hp: FIGHTER.hp,
+      x: baseX + nx * side * 10, y: baseY + ny * side * 10, a,
+      vx: Math.cos(a) * FIGHTER.speed, vy: Math.sin(a) * FIGHTER.speed,
+      ttl: FIGHTER.ttl, mode: 'patrol', homeShip: ship, homeX: ship.x, homeY: ship.y,
+      wpX: ship.x + Math.cos(a) * 320, wpY: ship.y + Math.sin(a) * 320,
+      wpUntil: state.time + rand(2.5, 4.0), gunCd: rand(0, FIGHTER.fireEvery),
+    });
+    state.aircraft.push(mk(-1), mk(1));
+    ship.airCd = ship.kind.airCooldown || 9.0;
+    if (!silent && ship.team === 'P') showMsg('Fighters launched');
+  }
+
+  function airStep(dt) {
+    for (const a of state.aircraft) {
+      a.ttl -= dt;
+      if (a.hp <= 0) a.ttl = 0;
+      a.gunCd = Math.max(0, a.gunCd - dt);
+      if (a.ttl <= 0 && a.mode !== 'return') a.mode = 'return';
+      const homeAlive = a.homeShip && a.homeShip.alive;
+      const homeX = homeAlive ? a.homeShip.x : a.homeX;
+      const homeY = homeAlive ? a.homeShip.y : a.homeY;
+      const targetsForVision = (a.team === 'P') ? state.enemy : state.player;
+      for (const s of targetsForVision) {
+        if (!s.alive) continue;
+        if (dist2(a.x, a.y, s.x, s.y) <= FIGHTER_V2) revealToTeam(s, a.team);
+      }
+      let tgt = null, bestD2 = Infinity;
+      for (const o of state.aircraft) {
+        if (!o || o.team === a.team) continue;
+        if (o.ttl <= 0 || o.hp <= 0) continue;
+        const d2 = dist2(a.x, a.y, o.x, o.y);
+        if (d2 < bestD2) { bestD2 = d2; tgt = o; }
+      }
+      if (a.mode !== 'return' && tgt && bestD2 < 900*900) a.mode = 'attack';
+      if (a.mode === 'attack' && (!tgt || bestD2 > 1200*1200)) a.mode = 'patrol';
+      if (a.mode === 'patrol') {
+        if (state.time > a.wpUntil || dist2(a.x, a.y, a.wpX, a.wpY) < 140*140) {
+          const wpa = rand(0, TAU);
+          const wpd = rand(260, 520);
+          a.wpX = clamp(homeX + Math.cos(wpa) * wpd, 0, WORLD.w);
+          a.wpY = clamp(homeY + Math.sin(wpa) * wpd, 0, WORLD.h);
+          a.wpUntil = state.time + rand(2.2, 3.8);
+        }
+        a.a = angleTo(a.x, a.y, a.wpX, a.wpY);
+      } else if (a.mode === 'attack' && tgt) {
+        const desired = angleTo(a.x, a.y, tgt.x, tgt.y);
+        a.a = desired;
+        const d = Math.sqrt(bestD2);
+        if (d <= FIGHTER.gunRange && a.gunCd <= 0) {
+          a.gunCd = FIGHTER.fireEvery;
+          const vx = Math.cos(desired) * FIGHTER.bulletSpeed;
+          const vy = Math.sin(desired) * FIGHTER.bulletSpeed;
+          state.bullets.push({ kind: 'air', team: a.team, x: a.x, y: a.y, vx, vy, ttl: 0.60, dmg: FIGHTER.dmg });
+        }
+      } else {
+        a.a = angleTo(a.x, a.y, homeX, homeY);
+      }
+      a.vx = Math.cos(a.a) * FIGHTER.speed;
+      a.vy = Math.sin(a.a) * FIGHTER.speed;
+      a.x += a.vx * dt;
+      a.y += a.vy * dt;
+      a.x = clamp(a.x, 0, WORLD.w);
+      a.y = clamp(a.y, 0, WORLD.h);
+      if (a.mode === 'return' && dist2(a.x, a.y, homeX, homeY) < 34*34) a.ttl = -999;
+    }
+    state.aircraft = state.aircraft.filter(a => a.ttl > 0 && a.hp > 0);
+  }
+
+  function bulletsStep(dt) {
+    for (const b of state.bullets) {
+      b.ttl -= dt;
+      b.x += b.vx * dt;
+      b.y += b.vy * dt;
+      if (b.ttl > 0 && inLand(b.x, b.y, 2.5)) b.ttl = 0;
+    }
+    for (const b of state.bullets) {
+      if (b.ttl <= 0) continue;
+      if (b.kind !== 'air') continue;
+      for (const t of state.aircraft) {
+        if (!t || t.team === b.team) continue;
+        if (t.ttl <= 0 || t.hp <= 0) continue;
+        const r = (t.radius || FIGHTER.radius) + 2.5;
+        if (dist2(b.x, b.y, t.x, t.y) <= r*r) {
+          b.ttl = 0;
+          t.hp -= b.dmg;
+          state.fx.push({ type: 'hit', x: b.x, y: b.y, until: state.time + FX.hitTtl });
+          if (t.hp <= 0) {
+            t.ttl = 0;
+            state.fx.push({ type: 'boom', x: t.x, y: t.y, until: state.time + FX.boomTtl });
+          }
+          break;
+        }
+      }
+    }
+    state.bullets = state.bullets.filter(b => b.ttl > 0 && b.x >= -120 && b.y >= -120 && b.x <= WORLD.w + 120 && b.y <= WORLD.h + 120);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // COASTAL BATTERIES
+  // ═══════════════════════════════════════════════════════════════════════════
+  function batteriesStep(dt) {
+    for (const b of state.batteries) {
+      if (!b.alive) continue;
+      b.gunCd = Math.max(0, b.gunCd - dt);
+      const targets = (b.team === 'P') ? state.enemy : state.player;
+      let tgt = null, bestD2 = Infinity;
+      for (const s of targets) {
+        if (!s.alive) continue;
+        if (!canSee(b.team, s)) continue;
+        const d2 = dist2(b.x, b.y, s.x, s.y);
+        if (d2 <= b.kind.gunRange*b.kind.gunRange && d2 < bestD2) { bestD2 = d2; tgt = s; }
+      }
+      if (tgt) {
+        const desired = angleTo(b.x, b.y, tgt.x, tgt.y);
+        turretStep(b, dt, desired);
+        if (b.gunCd <= 0) {
+          b.gunCd = b.kind.gunReload;
+          const spread = 0.08;
+          const salvo = b.kind.salvo || 1;
+          for (let i = 0; i < salvo; i++) fireShellAtPoint(b, tgt.x, tgt.y, spread, b.kind.shellDmg);
+        }
+      }
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // AI & AUTOPILOT
+  // ═══════════════════════════════════════════════════════════════════════════
+  function aliveShips(arr) { return arr.filter(s => s.alive); }
+  function teamHasContact(team) {
+    return (team === 'P') ? state.enemy.some(e => e.alive && e.detP) : state.player.some(p => p.alive && p.detE);
+  }
+
+  function autoSupportLaunch(ship, dt) {
+    if (!ship || !ship.alive) return;
+    if (ship.kind.type === 'CV') {
+      const airAlive = state.aircraft.filter(a => a.team === ship.team && a.ttl > 0 && a.hp > 0).length;
+      if (ship.airCd <= 0 && airAlive < 4) {
+        const hasC = teamHasContact(ship.team);
+        const p = (hasC ? 0.45 : 0.80) * dt;
+        if (Math.random() < p) tryLaunchFighters(ship, true);
+      }
+      return;
+    }
+    if (ship.kind.type === 'BB') {
+      if (!teamHasContact(ship.team)) {
+        const p = 0.55 * dt;
+        if (Math.random() < p) tryRecon(ship, true);
+      }
+    }
+  }
+
+  function capitalAutoPilot(ship, dt) {
+    if (!ship || !ship.alive) return;
+    if (ship.team !== 'P') return;
+    const targets = aliveShips(state.enemy);
+    const best = pickTargetDetectable(ship, targets);
+    if (best) {
+      const d = Math.sqrt(dist2(ship.x, ship.y, best.x, best.y));
+      const dir = ship.ai.strafe || 1;
+      const orbitR = clamp((ship.kind.gunRange > 0 ? ship.kind.gunRange * 0.78 : RADAR_RANGE * 0.55), 260, 560);
+      let tx = best.x, ty = best.y;
+      if (d <= orbitR * 1.8) {
+        const relA = angleTo(best.x, best.y, ship.x, ship.y);
+        const theta = relA + dir * 1.05;
+        tx = clamp(best.x + Math.cos(theta) * orbitR, 0, WORLD.w);
+        ty = clamp(best.y + Math.sin(theta) * orbitR, 0, WORLD.h);
+      }
+      steerToPoint(ship, tx, ty, dt, ship.kind.maxSpeed);
+      turretStep(ship, dt, ship.heading);
+      return;
+    }
+    if (!ship.ai.wpUntil || state.time > ship.ai.wpUntil || dist2(ship.x, ship.y, ship.ai.wpX, ship.ai.wpY) < 220*220) {
+      // Generate waypoint and ensure it's not in land
+      let wpX = rand(240, WORLD.w - 240);
+      let wpY = rand(240, WORLD.h - 240);
+      for (let tries = 0; tries < 10; tries++) {
+        if (!inLand(wpX, wpY, ship.kind.radius + 80)) break;
+        wpX = rand(240, WORLD.w - 240);
+        wpY = rand(240, WORLD.h - 240);
+      }
+      const safe = avoidLandTarget(ship, wpX, wpY);
+      ship.ai.wpX = safe.x;
+      ship.ai.wpY = safe.y;
+      ship.ai.wpUntil = state.time + rand(6.0, 10.0);
+    }
+    steerToPoint(ship, ship.ai.wpX, ship.ai.wpY, dt, ship.kind.maxSpeed);
+    turretStep(ship, dt, ship.heading);
+  }
+
+  function separationTeam(arr, dt) {
+    const n = arr.length;
+    for (let i = 0; i < n; i++) {
+      const a = arr[i];
+      if (!a || !a.alive) continue;
+      for (let j = i + 1; j < n; j++) {
+        const b = arr[j];
+        if (!b || !b.alive) continue;
+        const dx = a.x - b.x, dy = a.y - b.y;
+        const d2 = dx*dx + dy*dy;
+        const want = (a.kind.radius + b.kind.radius) + 18;
+        const w2 = want * want;
+        if (d2 <= 1e-6 || d2 >= w2) continue;
+        const d = Math.sqrt(d2);
+        const push = (want - d) / want;
+        const nx = dx / d, ny = dy / d;
+        const k = 140 * push;
+        a.vx += nx * k * dt;
+        a.vy += ny * k * dt;
+        b.vx -= nx * k * dt;
+        b.vy -= ny * k * dt;
+      }
+    }
+  }
+
+  function pickTargetDetectable(fromShip, candidates) {
+    let best = null, bestD2 = Infinity;
+    for (const t of candidates) {
+      if (!t.alive) continue;
+      if (!canSee(fromShip.team, t)) continue;
+      const d2 = dist2(fromShip.x, fromShip.y, t.x, t.y);
+      if (d2 < bestD2) { bestD2 = d2; best = t; }
+    }
+    return best;
+  }
+
+  function avoidHostileBatteries(ship, tx, ty) {
+    if (!ship || !ship.alive) return { x: tx, y: ty };
+    const hostile = state.batteries.filter(b => b.alive && b.team !== ship.team);
+    if (!hostile.length) return { x: tx, y: ty };
+    let x = tx, y = ty;
+    const danger = BATTERY.gunRange * 0.92;
+    for (const b of hostile) {
+      const dx = x - b.x, dy = y - b.y;
+      const d = Math.hypot(dx, dy);
+      if (d < danger) {
+        const a = (d > 1e-3) ? Math.atan2(dy, dx) : rand(0, TAU);
+        x = b.x + Math.cos(a) * danger;
+        y = b.y + Math.sin(a) * danger;
+      }
+    }
+    return { x: clamp(x, 0, WORLD.w), y: clamp(y, 0, WORLD.h) };
+  }
+
+  function aiStep(ship, dt) {
+    if (!ship.alive) return;
+    autoSupportLaunch(ship, dt);
+    const lvl = state.level;
+    const df = diff();
+    const enemies = aliveShips(state.player);
+    if (enemies.length === 0) return;
+    const best = pickTargetDetectable(ship, enemies);
+    const leader = pickCapitalLeader(state.enemy);
+    
+    if (leader && leader.alive && leader !== ship) {
+      const fp = formationPoint(leader, ship);
+      let tgt = { x: clamp(fp.x, 0, WORLD.w), y: clamp(fp.y, 0, WORLD.h) };
+      tgt = avoidHostileBatteries(ship, tgt.x, tgt.y);
+      const dForm = steerToPoint(ship, tgt.x, tgt.y, dt, ship.kind.maxSpeed);
+      if (best) {
+        const d = Math.sqrt(dist2(ship.x, ship.y, best.x, best.y));
+        const tLead = (ship.kind.shellSpeed > 0) ? clamp(d / ship.kind.shellSpeed, 0, 2.5) : 0;
+        const aimX = best.x + best.vx * tLead * 0.70;
+        const aimY = best.y + best.vy * tLead * 0.70;
+        const aimA = angleTo(ship.x, ship.y, aimX, aimY);
+        turretStep(ship, dt, aimA);
+        if (ship.kind.gunRange > 0 && d <= ship.kind.gunRange) {
+          const accuracy = clamp((0.14 + 0.06*lvl) * df.aiAccMult, 0, 0.70);
+          const aligned = Math.abs(normAngle(ship.turret - aimA)) < 0.33;
+          if (aligned) {
+            const distFactor = clamp(d / RADAR_RANGE, 0.65, 1.1);
+            const err = lerp(120, 28, accuracy) * distFactor;
+            const tx = clamp(aimX + rand(-err, err), 0, WORLD.w);
+            const ty = clamp(aimY + rand(-err, err), 0, WORLD.h);
+            tryFireAtPoint(ship, tx, ty, accuracy * 0.75);
+          }
+        }
+        if (ship.missileAmmo > 0 && ship.missileAmmoMax > 0 && ship.kind.missileReload > 0 && d <= RADAR_RANGE && d >= RADAR_RANGE * 0.45 && Math.random() < (0.0045 + 0.0010*lvl) * df.aiAggroMult) tryMissile(ship);
+      } else {
+        turretStep(ship, dt, ship.heading);
+      }
+      if (ship.onFire && ship.extCd <= 0 && Math.random() < 0.55 * dt) tryExtinguish(ship, true);
+      if (dForm < 120) { ship.vx *= 0.992; ship.vy *= 0.992; }
+      return;
+    }
+    
+    if (!best) {
+      if (!ship.ai.wpUntil || state.time > ship.ai.wpUntil || dist2(ship.x, ship.y, ship.ai.wpX, ship.ai.wpY) < 170*170) {
+        // Generate waypoint and ensure it's not in land
+        let wpX = rand(220, WORLD.w - 220);
+        let wpY = rand(220, WORLD.h - 220);
+        for (let tries = 0; tries < 10; tries++) {
+          if (!inLand(wpX, wpY, ship.kind.radius + 80)) break;
+          wpX = rand(220, WORLD.w - 220);
+          wpY = rand(220, WORLD.h - 220);
+        }
+        const safe = avoidLandTarget(ship, wpX, wpY);
+        ship.ai.wpX = safe.x;
+        ship.ai.wpY = safe.y;
+        ship.ai.wpUntil = state.time + rand(4.0, 7.5);
+      }
+      const adj = avoidHostileBatteries(ship, ship.ai.wpX, ship.ai.wpY);
+      const landAdj = avoidLandTarget(ship, adj.x, adj.y);
+      ship.ai.wpX = landAdj.x; ship.ai.wpY = landAdj.y;
+      const desired = angleTo(ship.x, ship.y, ship.ai.wpX, ship.ai.wpY);
+      const turn = clamp(normAngle(desired - ship.heading), -1, 1);
+      ship.heading += turn * ship.kind.turnRate * 0.70 * dt;
+      ship.vx += Math.cos(ship.heading) * ship.kind.accel * 0.55 * dt;
+      ship.vy += Math.sin(ship.heading) * ship.kind.accel * 0.55 * dt;
+      turretStep(ship, dt, ship.heading);
+      return;
+    }
+    
+    const d = Math.sqrt(dist2(ship.x, ship.y, best.x, best.y));
+    const dir = ship.ai.strafe || 1;
+    const orbitR = clamp((ship.kind.gunRange > 0 ? ship.kind.gunRange * 0.78 : RADAR_RANGE * 0.55), 260, 560);
+    let tx = best.x, ty = best.y;
+    if (d <= orbitR * 1.6) {
+      const relA = angleTo(best.x, best.y, ship.x, ship.y);
+      const theta = relA + dir * 1.15;
+      tx = clamp(best.x + Math.cos(theta) * orbitR, 0, WORLD.w);
+      ty = clamp(best.y + Math.sin(theta) * orbitR, 0, WORLD.h);
+    }
+    const adj = avoidHostileBatteries(ship, tx, ty);
+    tx = adj.x; ty = adj.y;
+    const desired = angleTo(ship.x, ship.y, tx, ty);
+    const turn = clamp(normAngle(desired - ship.heading), -1, 1);
+    const turnScale = lerp(0.70, 1.0, clamp(lvl / 6, 0, 1));
+    ship.heading += turn * ship.kind.turnRate * turnScale * dt;
+    const zig = Math.sin((state.time + ship.x*0.01) * (0.65 + 0.15*lvl)) * ship.ai.strafe;
+    ship.heading += 0.12 * zig * dt;
+    const tLead = (ship.kind.shellSpeed > 0) ? clamp(d / ship.kind.shellSpeed, 0, 2.5) : 0;
+    const aimX = best.x + best.vx * tLead * 0.70;
+    const aimY = best.y + best.vy * tLead * 0.70;
+    const aimA = angleTo(ship.x, ship.y, aimX, aimY);
+    turretStep(ship, dt, aimA);
+    const farF = (ship.kind.type === 'DD') ? 1.00 : 0.95;
+    const inF  = (ship.kind.type === 'DD') ? 0.78 : 0.55;
+    const desiredSpeed = (d > ship.kind.gunRange * 0.85) ? ship.kind.maxSpeed * farF : ship.kind.maxSpeed * inF;
+    const speed = len(ship.vx, ship.vy);
+    const accel = (speed < desiredSpeed) ? ship.kind.accel : -ship.kind.accel * 0.55;
+    ship.vx += Math.cos(ship.heading) * accel * dt;
+    ship.vy += Math.sin(ship.heading) * accel * dt;
+    if (ship.kind.gunRange > 0 && d <= ship.kind.gunRange) {
+      const accuracy = clamp((0.14 + 0.06*lvl) * df.aiAccMult, 0, 0.70);
+      const aligned = Math.abs(normAngle(ship.turret - aimA)) < 0.33;
+      if (aligned) {
+        const distFactor = clamp(d / RADAR_RANGE, 0.65, 1.1);
+        const err = lerp(120, 28, accuracy) * distFactor;
+        const tx = clamp(aimX + rand(-err, err), 0, WORLD.w);
+        const ty = clamp(aimY + rand(-err, err), 0, WORLD.h);
+        tryFireAtPoint(ship, tx, ty, accuracy * 0.75);
+      }
+    }
+    if (ship.missileAmmo > 0 && ship.missileAmmoMax > 0 && ship.kind.missileReload > 0 && d <= RADAR_RANGE && d >= RADAR_RANGE * 0.45 && Math.random() < (0.0045 + 0.0010*lvl) * df.aiAggroMult) tryMissile(ship);
+    if (ship.kind.smokeCooldown > 0 && ship.smokeCd <= 0 && ship.hp < ship.kind.hp * 0.45 && Math.random() < (0.0030 * lvl) * df.aiAggroMult) trySmoke(ship);
+    if (ship.onFire && ship.extCd <= 0 && Math.random() < 0.55 * dt) tryExtinguish(ship, true);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PLAYER CONTROL & PHYSICS
+  // ═══════════════════════════════════════════════════════════════════════════
+  function playerControl(ship, dt) {
+    if (!ship.alive) return;
+    let throttle = 0;
+    if (keys.has('KeyW')) throttle += 1;
+    if (keys.has('KeyS')) throttle -= 1;
+    let steer = 0;
+    if (keys.has('KeyA')) steer -= 1;
+    if (keys.has('KeyD')) steer += 1;
+    ship.heading += steer * ship.kind.turnRate * dt;
+    const accel = throttle * ship.kind.accel;
+    ship.vx += Math.cos(ship.heading) * accel * dt;
+    ship.vy += Math.sin(ship.heading) * accel * dt;
+    const aimWorldX = state.camX + mouse.x;
+    const aimWorldY = state.camY + mouse.y;
+    const aimA = angleTo(ship.x, ship.y, aimWorldX, aimWorldY);
+    turretStep(ship, dt, aimA);
+  }
+
+  function trailStep(ship) {
+    if (!ship.alive) return;
+    const last = ship.trail.length ? ship.trail[ship.trail.length - 1] : null;
+    const minD2 = 9;
+    if (!last || dist2(last.x, last.y, ship.x, ship.y) > minD2) {
+      ship.trail.push({ x: ship.x, y: ship.y, t: state.time });
+      if (ship.trail.length > 120) ship.trail.shift();
+    }
+    while (ship.trail.length && state.time - ship.trail[0].t > 5.2) ship.trail.shift();
+  }
+
+  function physicsStep(ship, dt) {
+    const drag = (ship.kind.type === 'BB') ? DRAG_BB : DRAG_DD;
+    if (!ship.alive) { ship.vx *= drag; ship.vy *= drag; return; }
+    const sp = len(ship.vx, ship.vy);
+    if (sp > ship.kind.maxSpeed) {
+      const k = ship.kind.maxSpeed / sp;
+      ship.vx *= k; ship.vy *= k;
+    }
+    ship.vx *= Math.pow(drag, dt * 60);
+    ship.vy *= Math.pow(drag, dt * 60);
+    ship.x += ship.vx * dt;
+    ship.y += ship.vy * dt;
+    resolveShipLand(ship);
+    withinWorld(ship, ship.kind.radius);
+    ship.gunCd = Math.max(0, ship.gunCd - dt);
+    ship.smokeCd = Math.max(0, ship.smokeCd - dt);
+    ship.extCd = Math.max(0, ship.extCd - dt);
+    ship.airCd = Math.max(0, ship.airCd - dt);
+    if (ship.missileAmmo >= ship.missileAmmoMax) {
+      ship.missileCd = 0;
+    } else {
+      ship.missileCd = Math.max(0, ship.missileCd - dt);
+      if (ship.missileCd <= 0) {
+        ship.missileAmmo = Math.min(ship.missileAmmoMax, ship.missileAmmo + 1);
+        ship.missileCd = (ship.missileAmmo < ship.missileAmmoMax) ? ship.kind.missileReload : 0;
+      }
+    }
+    trailStep(ship);
+  }
+
+  function shellsStep(dt) {
+    for (const sh of state.shells) {
+      sh.t += dt;
+      const u = clamp(sh.t / sh.tt, 0, 1);
+      const p = shellPos(sh, u);
+      sh.x = p.x; sh.y = p.y;
+    }
+    for (const sh of state.shells) {
+      if (sh.t < sh.tt) continue;
+      state.fx.push({ type: 'boom', x: sh.ex, y: sh.ey, until: state.time + FX.boomTtl });
+      const targets = (sh.team === 'P') ? state.enemy : state.player;
+      const batTargets = (sh.team === 'P') ? state.batteries.filter(b => b.alive && b.team === 'E') : state.batteries.filter(b => b.alive && b.team === 'P');
+      const r2 = sh.impactR * sh.impactR;
+      for (const t of targets) {
+        if (!t.alive) continue;
+        if (dist2(sh.ex, sh.ey, t.x, t.y) <= r2) damageShip(t, sh.dmg, 'shell');
+      }
+      for (const b of batTargets) {
+        if (dist2(sh.ex, sh.ey, b.x, b.y) <= r2) damageBattery(b, sh.dmg, 'shell');
+      }
+    }
+    state.shells = state.shells.filter(sh => sh.t < sh.tt);
+  }
+
+  function missilesStep(dt) {
+    for (const m of state.missiles) {
+      m.ttl -= dt;
+      m.x += m.vx * dt;
+      m.y += m.vy * dt;
+      if (m.ttl > 0 && inLand(m.x, m.y, MISSILE.radius)) m.ttl = 0;
+    }
+    for (const m of state.missiles) {
+      if (m.ttl <= 0) continue;
+      const targets = (m.team === 'P') ? state.enemy : state.player;
+      for (const t of targets) {
+        if (!t.alive) continue;
+        const r = t.kind.radius + MISSILE.radius;
+        if (dist2(m.x, m.y, t.x, t.y) <= r*r) {
+          m.ttl = 0;
+          state.fx.push({ type: 'boom', x: m.x, y: m.y, until: state.time + FX.boomTtl });
+          damageShip(t, m.dmg, 'torpedo');
+          if (t.alive) t.flooding = true;
+          break;
+        }
+      }
+    }
+    state.missiles = state.missiles.filter(m => m.ttl > 0 && m.x >= -140 && m.y >= -140 && m.x <= WORLD.w + 140 && m.y <= WORLD.h + 140);
+  }
+
+  function smokesStep() { state.smokes = state.smokes.filter(s => state.time <= s.until); }
+  function fxStep() { state.fx = state.fx.filter(f => state.time <= f.until); }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // UI & GAME FLOW
+  // ═══════════════════════════════════════════════════════════════════════════
+  function updateUI() {
+    ui.level.textContent = String(state.level);
+    ui.sel.textContent = String(state.selected + 1);
+    const selShip = state.player[state.selected];
+    if (selShip && selShip.kind.type === 'BB') {
+      const airborne = state.recons && state.recons.some(r => r && r.homeShip === selShip);
+      const cd = selShip.reconCd || 0;
+      const rtxt = airborne ? 'Recon: Airborne' : (cd > 0 ? `Recon: ${cd.toFixed(1)}s` : 'Recon: Ready (T)');
+      ui.stype.textContent = `${selShip.kind.type} | ${rtxt}`;
+    } else if (selShip && selShip.kind.type === 'CV') {
+      const atxt = selShip.airCd > 0 ? `Air: ${selShip.airCd.toFixed(1)}s` : 'Air: Ready (T)';
+      ui.stype.textContent = `${selShip.kind.type} | ${atxt}`;
+    } else {
+      ui.stype.textContent = selShip ? selShip.kind.type : '-';
+    }
+    ui.hp.textContent = selShip ? `${Math.round(selShip.hp)} / ${selShip.kind.hp}` : '-';
+    if (selShip) {
+      ui.gun.textContent = (selShip.kind.gunRange > 0) ? (selShip.gunCd > 0 ? `Reload ${selShip.gunCd.toFixed(1)}s` : 'Ready') : '-';
+      ui.smoke.textContent = (selShip.kind.smokeCooldown > 0) ? (selShip.smokeCd > 0 ? `Reload ${selShip.smokeCd.toFixed(1)}s` : 'Ready') : '-';
+      if (!selShip.missileAmmoMax || selShip.missileAmmoMax <= 0 || selShip.kind.missileReload <= 0) {
+        ui.missile.textContent = '-';
+      } else if (selShip.missileAmmo >= selShip.missileAmmoMax) {
+        ui.missile.textContent = `${selShip.missileAmmo}/${selShip.missileAmmoMax} Ready`;
+      } else {
+        ui.missile.textContent = `${selShip.missileAmmo}/${selShip.missileAmmoMax} +${selShip.missileCd.toFixed(1)}s`;
+      }
+    }
+  }
+
+  function endCheck() {
+    const pAlive = aliveShips(state.player).length;
+    const eAlive = aliveShips(state.enemy).length;
+    if (!state.ended && pAlive === 0) { state.ended = true; showMsg('Defeat — press R to retry', 2200); }
+    if (!state.ended && eAlive === 0) { state.ended = true; showMsg('Victory — click Next Level', 2200); }
+  }
+
+  function restartLevel() { if (!state.started) return; resetWorld(state.level); showMsg('Restarted'); }
+  function nextLevel() {
+    if (!state.started) return;
+    if (!state.ended) { showMsg('Finish the battle first'); return; }
+    resetWorld(Math.min(6, state.level + 1));
+    showMsg('Level up');
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ENHANCED WATER RENDERING
+  // ═══════════════════════════════════════════════════════════════════════════
+  function waterBackground() {
+    const t = WATER.t;
+    
+    // Deep ocean gradient with more color variation
+    const g = ctx.createLinearGradient(0, 0, VIEW.w * 0.3, VIEW.h);
+    g.addColorStop(0, 'rgb(12,65,130)');
+    g.addColorStop(0.25, 'rgb(18,95,165)');
+    g.addColorStop(0.5, 'rgb(25,120,180)');
+    g.addColorStop(0.75, 'rgb(15,85,155)');
+    g.addColorStop(1, 'rgb(8,55,115)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, VIEW.w, VIEW.h);
+
+    // Animated deep water caustics
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = 0.08;
+    for (let i = 0; i < 12; i++) {
+      const phase = t * 0.3 + i * 0.52;
+      const x = (Math.sin(phase * 0.7 + i) * 0.5 + 0.5) * VIEW.w;
+      const y = (Math.cos(phase * 0.5 + i * 1.3) * 0.5 + 0.5) * VIEW.h;
+      const r = 80 + 60 * Math.sin(phase);
+      const cg = ctx.createRadialGradient(x, y, 0, x, y, r);
+      cg.addColorStop(0, 'rgba(100,200,220,0.3)');
+      cg.addColorStop(0.5, 'rgba(60,160,200,0.15)');
+      cg.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = cg;
+      ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
+    }
+    ctx.restore();
+
+    // Subtle water texture overlay
+    if (WATER_TEX.pattern) {
+      ctx.save();
+      ctx.globalAlpha = 0.12;
+      ctx.translate(((t * 12) % 256) - 256, ((t * 8) % 256) - 256);
+      ctx.fillStyle = WATER_TEX.pattern;
+      ctx.fillRect(0, 0, VIEW.w + 512, VIEW.h + 512);
+      ctx.restore();
+    }
+
+    // Sunlight patches on water surface
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < 5; i++) {
+      const x = (Math.sin(t*0.12 + i*2.1) * 0.5 + 0.5) * VIEW.w;
+      const y = (Math.cos(t*0.10 + i*1.7) * 0.5 + 0.5) * VIEW.h;
+      const r = 180 + 100*Math.sin(t*0.18 + i);
+      const rg = ctx.createRadialGradient(x, y, 0, x, y, r);
+      rg.addColorStop(0, 'rgba(180,230,255,0.12)');
+      rg.addColorStop(0.6, 'rgba(120,200,240,0.06)');
+      rg.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = rg;
+      ctx.globalAlpha = 0.7;
+      ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
+    }
+    ctx.restore();
+
+    // Primary wave pattern - horizontal waves
+    ctx.save();
+    ctx.globalAlpha = 0.18;
+    ctx.lineWidth = 1.2;
+    for (let y = -30; y < VIEW.h + 30; y += 16) {
+      const phase = t * 1.4 + y * 0.018;
+      const isMain = y % 32 === 0;
+      ctx.strokeStyle = isMain ? 'rgba(200,240,255,0.35)' : 'rgba(150,210,240,0.20)';
+      ctx.beginPath();
+      for (let x = -20; x <= VIEW.w + 20; x += 12) {
+        const wob = Math.sin(phase + x * 0.015) * 3.5 + Math.sin(phase * 0.6 + x * 0.025) * 2;
+        const yy = y + wob;
+        if (x === -20) ctx.moveTo(x, yy); else ctx.lineTo(x, yy);
+      }
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // Secondary wave pattern - diagonal ripples
+    ctx.save();
+    ctx.globalAlpha = 0.06;
+    ctx.strokeStyle = 'rgba(200,240,255,0.25)';
+    ctx.lineWidth = 0.8;
+    for (let i = -VIEW.h; i < VIEW.w + VIEW.h; i += 35) {
+      const o = (t * 20) % 35;
+      ctx.beginPath();
+      ctx.moveTo(i - o, 0);
+      ctx.lineTo(i - o + VIEW.h * 0.7, VIEW.h);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // Foam/whitecap spots
+    ctx.save();
+    ctx.globalAlpha = 0.15;
+    for (let i = 0; i < 8; i++) {
+      const seed = i * 137.5;
+      const x = ((Math.sin(t * 0.08 + seed) + 1) * 0.5) * VIEW.w;
+      const y = ((Math.cos(t * 0.06 + seed * 0.7) + 1) * 0.5) * VIEW.h;
+      const size = 3 + Math.sin(t * 0.5 + i) * 2;
+      ctx.fillStyle = 'rgba(255,255,255,0.4)';
+      ctx.beginPath(); ctx.arc(x, y, size, 0, TAU); ctx.fill();
+    }
+    ctx.restore();
+
+    // Vignette for depth
+    ctx.save();
+    const vg = ctx.createRadialGradient(VIEW.w/2, VIEW.h/2, 150, VIEW.w/2, VIEW.h/2, Math.max(VIEW.w, VIEW.h)*0.75);
+    vg.addColorStop(0, 'rgba(0,0,0,0)');
+    vg.addColorStop(0.7, 'rgba(0,20,50,0.15)');
+    vg.addColorStop(1, 'rgba(0,10,30,0.35)');
+    ctx.fillStyle = vg;
+    ctx.fillRect(0, 0, VIEW.w, VIEW.h);
+    ctx.restore();
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ENHANCED LAND RENDERING
+  // ═══════════════════════════════════════════════════════════════════════════
+  function drawLand(camX, camY) {
+    const m = mapById(state.mapId);
+    ctx.save();
+    ctx.translate(-camX, -camY);
+    
+    for (const c of m.land) {
+      // Deep water to shallow water transition (outer ring)
+      ctx.save();
+      ctx.globalAlpha = 0.5;
+      const deepShallow = ctx.createRadialGradient(c.x, c.y, c.r * 0.8, c.x, c.y, c.r + 80);
+      deepShallow.addColorStop(0, 'rgba(0,0,0,0)');
+      deepShallow.addColorStop(0.3, 'rgba(40,180,190,0.15)');
+      deepShallow.addColorStop(0.6, 'rgba(60,200,200,0.25)');
+      deepShallow.addColorStop(1, 'rgba(80,210,210,0.35)');
+      ctx.fillStyle = deepShallow;
+      ctx.beginPath(); islandPath(c, 80); ctx.fill();
+      ctx.restore();
+
+      // Shallow water / reef zone
+      ctx.save();
+      ctx.globalAlpha = 0.55;
+      const shallow = ctx.createRadialGradient(c.x, c.y, c.r - 10, c.x, c.y, c.r + 50);
+      shallow.addColorStop(0, 'rgba(0,0,0,0)');
+      shallow.addColorStop(0.4, 'rgba(100,220,210,0.20)');
+      shallow.addColorStop(0.7, 'rgba(120,230,220,0.30)');
+      shallow.addColorStop(1, 'rgba(140,235,225,0.35)');
+      ctx.fillStyle = shallow;
+      ctx.beginPath(); islandPath(c, 50); ctx.fill();
+      ctx.restore();
+
+      // Beach ring with sand color
+      ctx.save();
+      ctx.globalAlpha = 0.7;
+      const beach = ctx.createRadialGradient(c.x, c.y, c.r - 8, c.x, c.y, c.r + 20);
+      beach.addColorStop(0, 'rgba(0,0,0,0)');
+      beach.addColorStop(0.5, 'rgba(240,225,180,0.25)');
+      beach.addColorStop(0.75, 'rgba(250,235,195,0.45)');
+      beach.addColorStop(1, 'rgba(255,245,210,0.55)');
+      ctx.fillStyle = beach;
+      ctx.beginPath(); islandPath(c, 20); ctx.fill();
+      ctx.restore();
+
+      // Main land mass with vegetation texture
+      ctx.save();
+      ctx.beginPath(); islandPath(c, 0); ctx.clip();
+      
+      // Base green
+      ctx.globalAlpha = 1;
+      const landBase = ctx.createRadialGradient(c.x - c.r*0.2, c.y - c.r*0.2, 0, c.x, c.y, c.r * 1.2);
+      landBase.addColorStop(0, 'rgb(65,130,70)');
+      landBase.addColorStop(0.5, 'rgb(50,110,55)');
+      landBase.addColorStop(1, 'rgb(35,85,45)');
+      ctx.fillStyle = landBase;
+      ctx.fillRect(c.x - c.r - 20, c.y - c.r - 20, (c.r + 20) * 2, (c.r + 20) * 2);
+
+      // Vegetation texture pattern
+      if (LAND.pattern) {
+        ctx.globalAlpha = 0.6;
+        ctx.fillStyle = LAND.pattern;
+        ctx.translate(c.x, c.y);
+        ctx.rotate(0.15 + c.x * 0.001);
+        ctx.fillRect(-c.r - 100, -c.r - 100, (c.r + 100) * 2, (c.r + 100) * 2);
+        ctx.setTransform(1,0,0,1,-camX,-camY);
+      }
+
+      // Elevation/hill shading
+      ctx.globalAlpha = 0.4;
+      const hillShade = ctx.createRadialGradient(c.x - c.r*0.3, c.y - c.r*0.3, c.r*0.1, c.x + c.r*0.2, c.y + c.r*0.2, c.r*1.1);
+      hillShade.addColorStop(0, 'rgba(180,220,160,0.35)');
+      hillShade.addColorStop(0.4, 'rgba(100,160,90,0.15)');
+      hillShade.addColorStop(0.7, 'rgba(40,80,40,0.20)');
+      hillShade.addColorStop(1, 'rgba(20,50,25,0.30)');
+      ctx.fillStyle = hillShade;
+      ctx.fillRect(c.x - c.r - 20, c.y - c.r - 20, (c.r + 20) * 2, (c.r + 20) * 2);
+
+      // Tree/vegetation spots (deterministic: avoids flicker)
+      ctx.globalAlpha = 0.32;
+      const treeCount = Math.floor(c.r / 18);
+      for (let i = 0; i < treeCount; i++) {
+        let u = Math.sin((c.x * 0.017) + (c.y * 0.023) + i * 1.77) * 43758.5453;
+        u = u - Math.floor(u);
+        let v = Math.sin((c.x * 0.031) - (c.y * 0.019) + i * 2.31) * 12345.678;
+        v = v - Math.floor(v);
+        const angle = u * TAU + c.x * 0.001;
+        const dist = c.r * (0.22 + v * 0.55);
+        const tx = c.x + Math.cos(angle) * dist;
+        const ty = c.y + Math.sin(angle) * dist;
+        const tr = 7 + (u * 6);
+        ctx.fillStyle = 'rgba(25,70,30,0.42)';
+        ctx.beginPath();
+        ctx.moveTo(tx, ty - tr);
+        ctx.lineTo(tx - tr*0.75, ty + tr*0.65);
+        ctx.lineTo(tx + tr*0.75, ty + tr*0.65);
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.restore();
+
+      // Animated shoreline foam
+      ctx.save();
+      ctx.globalAlpha = 0.35;
+      ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+      ctx.lineWidth = 2.5;
+      ctx.setLineDash([8, 12]);
+      ctx.lineDashOffset = -state.time * 35;
+      ctx.beginPath(); islandPath(c, 6); ctx.stroke();
+      ctx.restore();
+
+      // Secondary foam line
+      ctx.save();
+      ctx.globalAlpha = 0.2;
+      ctx.strokeStyle = 'rgba(220,250,255,0.5)';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([5, 15]);
+      ctx.lineDashOffset = -state.time * 25 + 10;
+      ctx.beginPath(); islandPath(c, 12); ctx.stroke();
+      ctx.restore();
+
+      // Drop shadow
+      ctx.save();
+      ctx.translate(8, 10);
+      ctx.globalAlpha = 0.18;
+      ctx.fillStyle = 'rgba(0,0,0,0.4)';
+      ctx.beginPath(); islandPath(c, 3); ctx.fill();
+      ctx.restore();
+
+      // Outline
+      ctx.save();
+      ctx.globalAlpha = 0.3;
+      ctx.strokeStyle = 'rgba(30,60,30,0.5)';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); islandPath(c, 0); ctx.stroke();
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ENTITY DRAWING
+  // ═══════════════════════════════════════════════════════════════════════════
+  function drawTrail(ship, camX, camY) {
+    if (!ship.trail || ship.trail.length < 2) return;
+    ctx.save();
+    ctx.translate(-camX, -camY);
+    const baseAlpha = ship.kind.type === 'BB' ? 0.34 : 0.26;
+    ctx.strokeStyle = ship.team === 'P' ? 'rgba(200,250,255,0.75)' : 'rgba(255,220,220,0.70)';
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = ship.kind.type === 'BB' ? 7 : 5;
+    for (let i = 1; i < ship.trail.length; i++) {
+      const a = ship.trail[i-1];
+      const b = ship.trail[i];
+      const age = state.time - b.t;
+      const alpha = baseAlpha * clamp(1 - age / 5.2, 0, 1);
+      ctx.globalAlpha = alpha;
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawWake(ship, camX, camY) {
+    if (!ship.alive) return;
+    const sp = len(ship.vx, ship.vy);
+    const intensity = clamp(sp / ship.kind.maxSpeed, 0, 1);
+    if (intensity < 0.06) return;
+    ctx.save();
+    ctx.translate(ship.x - camX, ship.y - camY);
+    ctx.rotate(ship.heading);
+    ctx.globalAlpha = (ship.kind.type === 'BB' ? 0.18 : 0.14) + (ship.kind.type === 'BB' ? 0.32 : 0.28) * intensity;
+    ctx.fillStyle = 'rgba(245,255,255,0.62)';
+    const scale = ship.kind.type === 'BB' ? 1.55 : 1.25;
+    ctx.beginPath();
+    ctx.moveTo(-10*scale, 0);
+    ctx.quadraticCurveTo(-35*scale, -14*scale, -78*scale, -26*scale);
+    ctx.quadraticCurveTo(-52*scale, -8*scale, -92*scale, 0);
+    ctx.quadraticCurveTo(-52*scale, 8*scale, -78*scale, 26*scale);
+    ctx.quadraticCurveTo(-35*scale, 14*scale, -10*scale, 0);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawShip(ship, camX, camY, selected = false) {
+    const x = ship.x - camX, y = ship.y - camY;
+    ctx.save();
+    ctx.translate(x, y);
+    let blink = false;
+    // Only enemy ships blink when detected, allied ships are always visible without blinking
+    if (ship.team === 'E') blink = ship.detP && (state.time < ship.blinkUntilP);
+    const blinkGate = blink ? (Math.sin(state.time * 18) > 0 ? 1 : 0.12) : 1;
+    
+    if (ship.kind.gunRange > 0) {
+      ctx.save();
+      ctx.rotate(ship.turret);
+      ctx.globalAlpha = (ship.alive ? 1.0 : 0.35) * blinkGate;
+      ctx.strokeStyle = 'rgba(255,255,255,0.34)';
+      ctx.lineWidth = ship.kind.type === 'BB' ? 4 : 3;
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(ship.kind.type === 'BB' ? 40 : 30, 0); ctx.stroke();
+      ctx.restore();
+    }
+    
+    ctx.font = (ship.kind.type === 'CV') ? '32px "Segoe UI Emoji", "Apple Color Emoji", system-ui' : ((ship.kind.type === 'BB') ? '30px "Segoe UI Emoji", "Apple Color Emoji", system-ui' : ((ship.kind.type === 'DD') ? '24px "Segoe UI Emoji", "Apple Color Emoji", system-ui' : '22px "Segoe UI Emoji", "Apple Color Emoji", system-ui'));
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.globalAlpha = (ship.alive ? 1.0 : 0.35) * blinkGate;
+    ctx.fillText((ship.kind.type === 'BB' || ship.kind.type === 'CV') ? '🛳️' : (ship.kind.type === 'TB' ? '🛥️' : '🚢'), 0, 0);
+    ctx.globalAlpha = 1;
+    
+    ctx.font = '12px system-ui';
+    ctx.fillStyle = 'rgba(255,255,255,0.78)';
+    ctx.globalAlpha = blinkGate;
+    ctx.fillText(ship.tag, 0, (ship.kind.type === 'BB' || ship.kind.type === 'CV') ? -30 : (ship.kind.type === 'DD' ? -26 : -24));
+    ctx.globalAlpha = 1;
+    
+    if (ship.alive) {
+      let st = '';
+      if (ship.onFire) st += '🔥';
+      if (ship.flooding) st += '💧';
+      if (st) {
+        ctx.globalAlpha = 0.95 * blinkGate;
+        ctx.font = '16px "Segoe UI Emoji", "Apple Color Emoji", system-ui';
+        ctx.fillText(st, 0, (ship.kind.type === 'CV') ? -52 : (ship.kind.type === 'BB' ? -48 : -44));
+        ctx.globalAlpha = 1;
+      }
+    }
+    
+    if (selected) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.38)';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(0, 0, (ship.kind.type === 'CV') ? 26 : (ship.kind.type === 'BB' ? 24 : 19), 0, TAU); ctx.stroke();
+    }
+    
+    const hpW = ship.kind.type === 'CV' ? 58 : (ship.kind.type === 'BB' ? 54 : 40);
+    const hpH = 6;
+    ctx.translate(-hpW/2, (ship.kind.type === 'CV') ? -42 : (ship.kind.type === 'BB' ? -40 : -36));
+    ctx.fillStyle = 'rgba(0,0,0,0.42)';
+    ctx.fillRect(0, 0, hpW, hpH);
+    ctx.fillStyle = 'rgba(255,255,255,0.62)';
+    ctx.fillRect(0, 0, hpW * (ship.hp / ship.kind.hp), hpH);
+    ctx.restore();
+  }
+
+  function drawRecon(camX, camY) {
+    const drawOne = (r) => {
+      if (!r) return;
+      const x = r.x - camX, y = r.y - camY;
+      if (x < -80 || y < -80 || x > VIEW.w + 80 || y > VIEW.h + 80) return;
+      ctx.save();
+      ctx.globalAlpha = 0.30;
+      ctx.fillStyle = (r.team === 'P') ? 'rgba(80,170,255,0.85)' : 'rgba(255,60,60,0.85)';
+      ctx.beginPath(); ctx.arc(x, y, 18, 0, TAU); ctx.fill();
+      ctx.globalAlpha = 0.85;
+      if (r.team === 'P') {
+        ctx.strokeStyle = 'rgba(80,170,255,0.85)';
+        ctx.lineWidth = 3.0;
+        ctx.beginPath(); ctx.arc(x, y, 18, 0, TAU); ctx.stroke();
+      } else {
+        ctx.strokeStyle = 'rgba(255,60,60,0.90)';
+        ctx.lineWidth = 3.2;
+        ctx.beginPath(); ctx.arc(x, y, 18, 0, TAU); ctx.stroke();
+        ctx.strokeStyle = 'rgba(255,255,255,0.90)';
+        ctx.lineWidth = 2.6;
+        ctx.beginPath(); ctx.arc(x, y, 14, 0, TAU); ctx.stroke();
+      }
+      ctx.globalAlpha = 0.95;
+      ctx.font = '22px system-ui, Segoe UI Emoji, Apple Color Emoji, Noto Color Emoji';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.shadowColor = 'rgba(0,0,0,0.45)';
+      ctx.shadowBlur = 6;
+      ctx.fillText('🛩️', x, y);
+      ctx.restore();
+    };
+    if (!state.recons) return;
+    for (const r of state.recons) drawOne(r);
+  }
+
+  function drawAircraft(camX, camY) {
+    for (const a of state.aircraft) {
+      const x = a.x - camX, y = a.y - camY;
+      if (x < -60 || y < -60 || x > VIEW.w + 60 || y > VIEW.h + 60) continue;
+      ctx.save();
+      ctx.globalAlpha = 0.30;
+      ctx.fillStyle = (a.team === 'P') ? 'rgba(80,170,255,0.85)' : 'rgba(255,60,60,0.85)';
+      ctx.beginPath(); ctx.arc(x, y, 16, 0, TAU); ctx.fill();
+      ctx.globalAlpha = 0.85;
+      if (a.team === 'P') {
+        ctx.strokeStyle = 'rgba(80,170,255,0.85)';
+        ctx.lineWidth = 3.0;
+        ctx.beginPath(); ctx.arc(x, y, 16, 0, TAU); ctx.stroke();
+      } else {
+        ctx.strokeStyle = 'rgba(255,60,60,0.90)';
+        ctx.lineWidth = 3.2;
+        ctx.beginPath(); ctx.arc(x, y, 16, 0, TAU); ctx.stroke();
+        ctx.strokeStyle = 'rgba(255,255,255,0.90)';
+        ctx.lineWidth = 2.6;
+        ctx.beginPath(); ctx.arc(x, y, 12.5, 0, TAU); ctx.stroke();
+      }
+      ctx.globalAlpha = 0.95;
+      ctx.font = '18px system-ui, Segoe UI Emoji, Apple Color Emoji, Noto Color Emoji';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.shadowColor = 'rgba(0,0,0,0.45)';
+      ctx.shadowBlur = 6;
+      ctx.fillText('✈️', x, y);
+      ctx.shadowBlur = 0;
+      ctx.restore();
+    }
+  }
+
+  function drawBullets(camX, camY) {
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (const b of state.bullets) {
+      const x = b.x - camX, y = b.y - camY;
+      if (x < -40 || y < -40 || x > VIEW.w + 40 || y > VIEW.h + 40) continue;
+      ctx.globalAlpha = 0.80;
+      if (b.team === 'P') {
+        ctx.fillStyle = 'rgba(120,200,255,0.95)';
+        ctx.shadowColor = 'rgba(80,170,255,0.70)';
+      } else {
+        ctx.fillStyle = 'rgba(255,255,255,0.95)';
+        ctx.shadowColor = 'rgba(255,60,60,0.70)';
+      }
+      ctx.shadowBlur = 6;
+      ctx.beginPath(); ctx.arc(x, y, 1.8, 0, TAU); ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function drawShell(sh, camX, camY) {
+    ctx.save();
+    ctx.translate(sh.x - camX, sh.y - camY);
+    ctx.fillStyle = (sh.team === 'P') ? 'rgba(215,245,255,0.95)' : 'rgba(255,215,215,0.95)';
+    ctx.shadowColor = 'rgba(255,255,255,0.20)';
+    ctx.shadowBlur = 6;
+    ctx.beginPath(); ctx.arc(0, 0, 2.6, 0, TAU); ctx.fill();
+    ctx.restore();
+  }
+
+  function drawMissile(m, camX, camY) {
+    ctx.save();
+    ctx.translate(m.x - camX, m.y - camY);
+    ctx.rotate(m.a);
+    ctx.save();
+    ctx.globalAlpha = 0.62;
+    ctx.strokeStyle = 'rgba(210,245,255,0.58)';
+    ctx.lineWidth = 2.6;
+    ctx.setLineDash([10, 8]);
+    ctx.lineDashOffset = -state.time * 40;
+    ctx.beginPath(); ctx.moveTo(-88, 0); ctx.lineTo(-12, 0); ctx.stroke();
+    ctx.restore();
+    ctx.font = '18px "Segoe UI Emoji", "Apple Color Emoji", system-ui';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.globalAlpha = 0.95;
+    ctx.fillText('🐟', 0, 0);
+    ctx.restore();
+  }
+
+  function drawRadarSweepOverlay(camX, camY) {
+    const sel = state.player[state.selected];
+    if (!sel || !sel.alive) return;
+    const x = sel.x - camX, y = sel.y - camY;
+    const hasContact = state.enemy.some(e => e.alive && e.detP);
+    if (hasContact) return;
+    const a = state.time * 1.65;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.globalAlpha = 0.70;
+    ctx.strokeStyle = 'rgba(90,255,140,0.22)';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(0, 0, RADAR_RANGE, 0, TAU); ctx.stroke();
+    ctx.globalAlpha = 0.75;
+    ctx.strokeStyle = 'rgba(90,255,140,0.32)';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(Math.cos(a) * RADAR_RANGE, Math.sin(a) * RADAR_RANGE); ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawSmoke(sm, camX, camY) {
+    const t = clamp((sm.until - state.time) / (sm.until - sm.born), 0, 1);
+    ctx.save();
+    ctx.translate(sm.x - camX, sm.y - camY);
+    ctx.globalAlpha = 0.60 * t;
+    ctx.font = '22px "Segoe UI Emoji", "Apple Color Emoji", system-ui';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const wob = Math.sin(state.time*3.0) * 3;
+    ctx.fillText('💨', -18 + wob, -8);
+    ctx.fillText('💨',  16,  4 + wob*0.5);
+    ctx.fillText('💨',   0,  18 - wob*0.4);
+    ctx.fillText('💨',  20, -18);
+    ctx.fillText('💨', -24,  18);
+    ctx.restore();
+  }
+
+  function drawFx(f, camX, camY) {
+    if (f.type === 'boom') {
+      const t = clamp((f.until - state.time) / FX.boomTtl, 0, 1);
+      ctx.save();
+      ctx.translate(f.x - camX, f.y - camY);
+      ctx.globalAlpha = 0.80 * t;
+      ctx.font = `${Math.round(28 + (1-t)*12)}px "Segoe UI Emoji", "Apple Color Emoji", system-ui`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('💥', 0, 0);
+      ctx.restore();
+      return;
+    }
+    const t = clamp((f.until - state.time) / (f.type === 'splash' ? FX.splashTtl : FX.hitTtl), 0, 1);
+    ctx.save();
+    ctx.translate(f.x - camX, f.y - camY);
+    if (f.type === 'splash') {
+      ctx.globalAlpha = 0.35 * t;
+      ctx.strokeStyle = 'rgba(180,220,255,0.85)';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(0, 0, lerp(10, 40, 1-t), 0, TAU); ctx.stroke();
+    } else {
+      ctx.globalAlpha = 0.50 * t;
+      ctx.fillStyle = 'rgba(255,240,190,0.9)';
+      ctx.beginPath(); ctx.arc(0, 0, lerp(8, 18, 1-t), 0, TAU); ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function drawBatteries(camX, camY) {
+    for (const b of state.batteries) {
+      if (!b.alive) continue;
+      if (b.team === 'E' && !b.detP) continue;
+      const x = b.x - camX, y = b.y - camY;
+      if (x < -60 || y < -60 || x > VIEW.w + 60 || y > VIEW.h + 60) continue;
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.globalAlpha = 0.88;
+      ctx.fillStyle = 'rgba(18,18,18,0.72)';
+      ctx.beginPath(); ctx.arc(0, 0, 10, 0, TAU); ctx.fill();
+      ctx.globalAlpha = 0.85;
+      if (b.team === 'P') {
+        ctx.strokeStyle = 'rgba(80,170,255,0.85)';
+        ctx.lineWidth = 2.8;
+        ctx.beginPath(); ctx.arc(0, 0, 11.5, 0, TAU); ctx.stroke();
+      } else {
+        ctx.strokeStyle = 'rgba(255,60,60,0.90)';
+        ctx.lineWidth = 3.0;
+        ctx.beginPath(); ctx.arc(0, 0, 11.5, 0, TAU); ctx.stroke();
+        ctx.strokeStyle = 'rgba(255,255,255,0.90)';
+        ctx.lineWidth = 2.2;
+        ctx.beginPath(); ctx.arc(0, 0, 8.8, 0, TAU); ctx.stroke();
+      }
+      ctx.globalAlpha = 0.92;
+      ctx.strokeStyle = 'rgba(240,240,240,0.70)';
+      ctx.lineWidth = 2.6;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(Math.cos(b.turret) * 16, Math.sin(b.turret) * 16);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  function drawRadar() {
+    const rx = 16, ry = 84, rw = 150, rh = 100;
+    ctx.save();
+    ctx.globalAlpha = 0.88;
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.strokeStyle = 'rgba(255,255,255,0.14)';
+    ctx.lineWidth = 1;
+    ctx.fillRect(rx, ry, rw, rh);
+    ctx.strokeRect(rx, ry, rw, rh);
+    const toR = (x, y) => ({ x: rx + (x / WORLD.w) * rw, y: ry + (y / WORLD.h) * rh });
+    const rs = ((rw + rh) * 0.5) / ((WORLD.w + WORLD.h) * 0.5);
+    const m = mapById(state.mapId);
+    
+    // Draw fog of war (grey zone) - areas not covered by allied ship/aircraft vision
+    // First fill entire minimap with grey fog
+    ctx.save();
+    ctx.globalAlpha = 0.55;
+    ctx.fillStyle = 'rgba(60,60,80,0.7)';
+    ctx.fillRect(rx, ry, rw, rh);
+    ctx.restore();
+    
+    // Cut out vision circles for allied ships
+    ctx.save();
+    ctx.globalCompositeOperation = 'destination-out';
+    for (const p of state.player) {
+      if (!p.alive) continue;
+      const q = toR(p.x, p.y);
+      const visionR = Math.max(3, RADAR_RANGE * rs);
+      ctx.beginPath();
+      ctx.arc(q.x, q.y, visionR, 0, TAU);
+      ctx.fillStyle = 'rgba(0,0,0,1)';
+      ctx.fill();
+    }
+    // Cut out vision circles for allied aircraft (recons and fighters)
+    const AIRCRAFT_VISION = RADAR_RANGE * 1.2; // Aircraft have slightly larger vision
+    for (const a of state.aircraft) {
+      if (a.team !== 'P' || a.ttl <= 0 || a.hp <= 0) continue;
+      const q = toR(a.x, a.y);
+      const visionR = Math.max(2, AIRCRAFT_VISION * rs);
+      ctx.beginPath();
+      ctx.arc(q.x, q.y, visionR, 0, TAU);
+      ctx.fillStyle = 'rgba(0,0,0,1)';
+      ctx.fill();
+    }
+    // Cut out vision for recon planes
+    for (const r of (state.recons || [])) {
+      if (!r || r.team !== 'P') continue;
+      const q = toR(r.x, r.y);
+      const visionR = Math.max(2, AIRCRAFT_VISION * rs);
+      ctx.beginPath();
+      ctx.arc(q.x, q.y, visionR, 0, TAU);
+      ctx.fillStyle = 'rgba(0,0,0,1)';
+      ctx.fill();
+    }
+    ctx.restore();
+    
+    // Land silhouettes (draw on top of fog)
+    ctx.save();
+    ctx.globalAlpha = 0.5;
+    ctx.fillStyle = 'rgba(100,90,70,0.8)';
+    for (const c of m.land) {
+      const q = toR(c.x, c.y);
+      const r = Math.max(1.2, c.r * rs);
+      ctx.beginPath(); ctx.arc(q.x, q.y, r, 0, TAU); ctx.fill();
+    }
+    ctx.restore();
+    
+    // Draw allied ship positions
+    for (const p of state.player) {
+      if (!p.alive) continue;
+      const q = toR(p.x, p.y);
+      ctx.fillStyle = p.kind.type === 'BB' ? 'rgba(200,250,255,0.95)' : (p.kind.type === 'CV' ? 'rgba(180,220,255,0.95)' : 'rgba(90,200,255,0.85)');
+      ctx.fillRect(q.x-2, q.y-2, 4, 4);
+    }
+    // Draw detected enemy positions
+    for (const e of state.enemy) {
+      if (!e.alive) continue;
+      if (!e.detP) continue;
+      const q = toR(e.x, e.y);
+      ctx.fillStyle = e.kind.type === 'BB' ? 'rgba(255,220,220,0.95)' : 'rgba(255,130,130,0.85)';
+      ctx.fillRect(q.x-2, q.y-2, 4, 4);
+    }
+    // Draw batteries
+    for (const b of state.batteries) {
+      if (!b.alive) continue;
+      if (b.team === 'E' && !b.detP) continue;
+      const q = toR(b.x, b.y);
+      ctx.fillStyle = (b.team === 'P') ? 'rgba(170,210,255,0.90)' : 'rgba(255,200,200,0.90)';
+      ctx.fillRect(q.x-2, q.y-2, 4, 4);
+    }
+    // Draw allied aircraft on minimap
+    for (const a of state.aircraft) {
+      if (a.team !== 'P' || a.ttl <= 0 || a.hp <= 0) continue;
+      const q = toR(a.x, a.y);
+      ctx.fillStyle = 'rgba(120,180,255,0.8)';
+      ctx.beginPath(); ctx.arc(q.x, q.y, 2, 0, TAU); ctx.fill();
+    }
+    for (const r of (state.recons || [])) {
+      if (!r || r.team !== 'P') continue;
+      const q = toR(r.x, r.y);
+      ctx.fillStyle = 'rgba(100,200,255,0.8)';
+      ctx.beginPath(); ctx.arc(q.x, q.y, 2, 0, TAU); ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // MAIN DRAW & GAME LOOP
+  // ═══════════════════════════════════════════════════════════════════════════
+  function draw() {
+    waterBackground();
+    drawLand(state.camX, state.camY);
+    drawBatteries(state.camX, state.camY);
+    drawRadarSweepOverlay(state.camX, state.camY);
+    for (const sm of state.smokes) drawSmoke(sm, state.camX, state.camY);
+    for (const p of state.player) drawTrail(p, state.camX, state.camY);
+    for (const e of state.enemy) { if (e.detP) drawTrail(e, state.camX, state.camY); }
+    for (const p of state.player) drawWake(p, state.camX, state.camY);
+    for (const e of state.enemy) { if (e.detP) drawWake(e, state.camX, state.camY); }
+    for (let i = 0; i < state.player.length; i++) drawShip(state.player[i], state.camX, state.camY, i === state.selected);
+    for (const e of state.enemy) { if (e.detP) drawShip(e, state.camX, state.camY, false); }
+    drawRecon(state.camX, state.camY);
+    drawAircraft(state.camX, state.camY);
+    drawBullets(state.camX, state.camY);
+    for (const sh of state.shells) drawShell(sh, state.camX, state.camY);
+    for (const m of state.missiles) drawMissile(m, state.camX, state.camY);
+    for (const f of state.fx) drawFx(f, state.camX, state.camY);
+    drawRadar();
+  }
+
+  let last = performance.now();
+  function tick(now) {
+    const dt = clamp((now - last) / 1000, 0, 0.033);
+    last = now;
+    state.time += dt;
+    WATER.t += dt;
+    
+    const sel = state.player[state.selected];
+    if (sel) {
+      state.camX = lerp(state.camX, sel.x - VIEW.w/2, 0.07);
+      state.camY = lerp(state.camY, sel.y - VIEW.h/2, 0.07);
+    }
+    state.camX = clamp(state.camX, 0, WORLD.w - VIEW.w);
+    state.camY = clamp(state.camY, 0, WORLD.h - VIEW.h);
+
+    if (state.started && !state.ended) {
+      reconStep(dt);
+      airStep(dt);
+      updateDetections();
+      batteriesStep(dt);
+      const ctrl = state.player[state.selected];
+      const capital = pickCapitalLeader(state.player);
+      for (let i = 0; i < state.player.length; i++) {
+        const s = state.player[i];
+        if (!s.alive) continue;
+        if (i === state.selected) {
+          playerControl(s, dt);
+        } else {
+          autoSupportLaunch(s, dt);
+          const lead = (capital && capital.alive) ? capital : (ctrl && ctrl.alive ? ctrl : state.player[0]);
+          if (!lead || !lead.alive) continue;
+          if (s === lead) {
+            capitalAutoPilot(s, dt);
+          } else {
+            const fp = formationPoint(lead, s);
+            steerToPoint(s, clamp(fp.x, 0, WORLD.w), clamp(fp.y, 0, WORLD.h), dt, s.kind.maxSpeed);
+            turretStep(s, dt, s.heading);
+          }
+        }
+      }
+      for (const e of state.enemy) aiStep(e, dt);
+      separationTeam(state.player, dt);
+      separationTeam(state.enemy, dt);
+      for (const s of state.player) physicsStep(s, dt);
+      for (const e of state.enemy) physicsStep(e, dt);
+      shellsStep(dt);
+      missilesStep(dt);
+      bulletsStep(dt);
+      statusStep(dt);
+      smokesStep();
+      fxStep();
+      endCheck();
+    } else if (state.started) {
+      reconStep(dt);
+      airStep(dt);
+      shellsStep(dt);
+      missilesStep(dt);
+      bulletsStep(dt);
+      statusStep(dt);
+      smokesStep();
+      fxStep();
+    }
+
+    updateUI();
+    draw();
+    requestAnimationFrame(tick);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // INITIALIZATION
+  // ═══════════════════════════════════════════════════════════════════════════
+  ui.diffEasy.addEventListener('click', () => setDifficulty('easy'));
+  ui.diffMed.addEventListener('click', () => setDifficulty('med'));
+  ui.diffHard.addEventListener('click', () => setDifficulty('hard'));
+  ui.classDD.addEventListener('click', () => setPlayerClass('dd'));
+  ui.classBB.addEventListener('click', () => setPlayerClass('bb'));
+  ui.classTB.addEventListener('click', () => setPlayerClass('tb'));
+  ui.classCV.addEventListener('click', () => setPlayerClass('cv'));
+  ui.map0.addEventListener('click', () => setMap(0));
+  ui.map1.addEventListener('click', () => setMap(1));
+  ui.map2.addEventListener('click', () => setMap(2));
+  ui.startBtn.addEventListener('click', () => {
+    if (!state.started) {
+      state.started = true;
+      hideMenu();
+      resetWorld(1);
+      const b = battleByMap(state.mapId);
+      showMsg(`${mapById(state.mapId).name} — ${diff().name} — ${className(state.playerClass)} — ${b.pName} vs ${b.eName}`, 2800);
+    } else {
+      hideMenu();
+    }
+  });
+  ui.restart.addEventListener('click', restartLevel);
+  ui.next.addEventListener('click', nextLevel);
+
+  setDifficulty('med');
+  setPlayerClass('dd');
+  setMap(0);
+  showMenu();
+  requestAnimationFrame(tick);
+})();
+</script>
+</body>
+</html>
