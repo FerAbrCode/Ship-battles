@@ -148,9 +148,9 @@ export function avoidLandTarget(ship, tx, ty, state) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 // Large margin for commander routes - must account for escort formation radius
-// Escort positions are at FORM_SEP * 4.0 from center (see entities.js getEscortPositions)
-// FORM_SEP = 45 * MAP_SCALE = 45 * 2.8 = 126, so outer ring is ~504 units
-const ESCORT_FORMATION_RADIUS = 550; // How far escorts can be from commander (with safety margin)
+// Escort positions are at FORM_SEP * 5.0 from center (see entities.js getEscortPositions)
+// FORM_SEP = 45 * MAP_SCALE = 45 * 2.8 = 126, so outer ring is ~630 units
+const ESCORT_FORMATION_RADIUS = 680; // How far escorts can be from commander (with safety margin)
 const COMMANDER_LAND_MARGIN = 400 + ESCORT_FORMATION_RADIUS; // Extra margin so escorts don't touch coast
 
 // Get distance to nearest land from a point
@@ -475,7 +475,7 @@ function findWaypointAroundShip(sx, sy, ex, ey, blockingShip, blockTime, margin,
 
 // Plan a path to target that avoids all ship trajectories
 export function planPathAroundShips(ship, targetX, targetY, allShips, state) {
-  const margin = ship.kind.radius + 30;
+  const margin = ship.kind.radius + 60; // Increased margin for better spacing
   const lookAhead = 3.0;
   const path = [];
   
@@ -530,24 +530,24 @@ export function calculateAvoidanceSteering(ship, allShips) {
     const otherFuture = predictPosition(other, 2.0);
     const futureDist = Math.hypot(myFuture.x - otherFuture.x, myFuture.y - otherFuture.y);
     
-    // Calculate urgency based on future distance
-    const urgency = Math.max(0, 1 - (futureDist / (safeDistance * 3)));
+    // Calculate urgency based on future distance - gentler curve
+    const urgency = Math.max(0, 1 - (futureDist / (safeDistance * 4)));
     
-    if (urgency < 0.1) continue;
+    if (urgency < 0.15) continue;
     
     // Smaller ships MUST avoid larger ships more aggressively
     const priorityDiff = otherPriority - myPriority;
     let avoidStrength = urgency;
     
     if (priorityDiff > 0) {
-      // Other ship is bigger - we must avoid more
-      avoidStrength *= (1 + priorityDiff * 0.5);
+      // Other ship is bigger - we must avoid more (but less aggressive)
+      avoidStrength *= (1 + priorityDiff * 0.3);
     } else if (priorityDiff === 0) {
       // Same size - both avoid gently
-      avoidStrength *= 0.3;
+      avoidStrength *= 0.2;
     } else {
       // We're bigger - minimal avoidance
-      avoidStrength *= 0.1;
+      avoidStrength *= 0.08;
     }
     
     // Determine which way to steer
@@ -555,20 +555,20 @@ export function calculateAvoidanceSteering(ship, allShips) {
     const relBearing = normAngle(toOther - ship.heading);
     const steerDir = relBearing > 0 ? -1 : 1;
     
-    steerAdjust += steerDir * avoidStrength * 0.15;
+    steerAdjust += steerDir * avoidStrength * 0.10; // Reduced from 0.15
     
-    // Adjust speed - slow down if other is ahead, speed up if behind
+    // Adjust speed - slow down if other is ahead, speed up if behind (gentler)
     const aheadness = Math.cos(relBearing);
     if (aheadness > 0.3 && priorityDiff >= 0) {
       // Other ship is ahead and same size or bigger - slow down
-      throttleAdjust -= avoidStrength * 10;
+      throttleAdjust -= avoidStrength * 6; // Reduced from 10
     } else if (aheadness < -0.3 && priorityDiff <= 0) {
       // Other ship is behind and same size or smaller - speed up slightly
-      throttleAdjust += avoidStrength * 5;
+      throttleAdjust += avoidStrength * 3; // Reduced from 5
     }
   }
   
-  return { steer: clamp(steerAdjust, -0.25, 0.25), throttle: clamp(throttleAdjust, -15, 10) };
+  return { steer: clamp(steerAdjust, -0.18, 0.18), throttle: clamp(throttleAdjust, -10, 8) }; // Reduced limits
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

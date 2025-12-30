@@ -115,12 +115,12 @@ export function pickCapitalLeader(arr) {
 // Priority: front (0-5), front-sides (6-9), back-sides (10+)
 function getEscortPositions(numPositions, sep) {
   const positions = [];
-  const outerRingRadius = sep * 4.0; // Larger radius for better screening
+  const outerRingRadius = sep * 5.0; // Increased radius for more spacing between escorts
   
-  // Front positions (highest priority) - 6 positions in front arc
+  // Front positions (highest priority) - 6 positions in front arc with wider spread
   const frontCount = Math.min(6, numPositions);
   for (let i = 0; i < frontCount; i++) {
-    const angle = (i / Math.max(1, frontCount - 1) - 0.5) * Math.PI * 0.7; // -63 to +63 degrees
+    const angle = (i / Math.max(1, frontCount - 1) - 0.5) * Math.PI * 0.8; // Wider spread: -72 to +72 degrees
     positions.push({
       priority: i,
       angle: angle,

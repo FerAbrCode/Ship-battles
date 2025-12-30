@@ -476,7 +476,7 @@ export function drawShip(ctx, ship, camX, camY, selected, state) {
   
   const hpW = 30 * shipScale + 10;
   const hpH = 5 + shipScale;
-  const hpY = -14 * shipScale - 22;
+  const hpY = -14 * shipScale - 30; // Moved higher to avoid overlap with name
   ctx.translate(-hpW/2, hpY);
   ctx.fillStyle = 'rgba(0,0,0,0.42)';
   ctx.fillRect(0, 0, hpW, hpH);
