@@ -75,10 +75,14 @@
         <button id="map1">Guadalcanal</button>
         <button id="map2">Leyte Gulf</button>
         <div class="spacer"></div>
+        <button id="leaveBattleBtn" style="display:none;">Leave Battle</button>
+        <button id="spectatorBtn">Spectator Mode</button>
         <button id="startBtn">Start</button>
       </div>
     </div>
   </div>
+  <button id="leaveBtn" style="position:fixed;top:12px;right:12px;padding:8px 14px;border-radius:10px;border:1px solid rgba(255,255,255,0.14);background:rgba(0,0,0,0.55);color:white;cursor:pointer;z-index:15;display:none;">Leave to Menu</button>
+  <button id="speedBtn" style="position:fixed;top:12px;right:140px;padding:8px 14px;border-radius:10px;border:1px solid rgba(255,255,255,0.14);background:rgba(0,0,0,0.55);color:white;cursor:pointer;z-index:15;display:none;">Speed: 1x</button>
   <div id="wrap">
     <canvas id="c" width="1000" height="650"></canvas>
   </div>
@@ -110,7 +114,11 @@ const ui = {
   map0: document.getElementById('map0'),
   map1: document.getElementById('map1'),
   map2: document.getElementById('map2'),
+  spectatorBtn: document.getElementById('spectatorBtn'),
   startBtn: document.getElementById('startBtn'),
+  leaveBtn: document.getElementById('leaveBtn'),
+  leaveBattleBtn: document.getElementById('leaveBattleBtn'),
+  speedBtn: document.getElementById('speedBtn'),
 };
 
 init(canvas, ui);
